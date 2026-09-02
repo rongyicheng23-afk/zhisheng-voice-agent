@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: springboot-minio
+
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/minio?characterEncoding=UTF-8&useSSL=false}
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:12345678}
+    driver-class-name: ${MYSQL_DRIVER:com.mysql.cj.jdbc.Driver}
+
+  sql:
+    init:
+      mode: ${SQL_INIT_MODE:always}
+      schema-locations: classpath:sql/t_user_audio_history.sql,classpath:sql/t_user_tts_history.sql,classpath:sql/t_user_voiceprint_history.sql,classpath:sql/t_user_speaker_profile.sql,classpath:sql/t_user_meeting_note.sql,classpath:sql/t_user_meeting_segment.sql,classpath:sql/t_user_meeting_revision.sql,classpath:sql/t_user_auth_schema.sql
+      data-locations: ${SQL_DATA_LOCATIONS:classpath:sql/t_user_auth_data.sql}
+
+  servlet:
+    multipart:
+      max-file-size: 300MB
+      max-request-size: 300MB
+
+server:
+  port: ${SERVER_PORT:18080}
+
+mybatis-plus:
+  mapper-locations: classpath:mapper/*.xml
+
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://127.0.0.1:19000}
+  accessKey: ${MINIO_ACCESS_KEY:minioadmin}
+  secretKey: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:user-bucket}
+
+funasr:
+  http-base-url: ${FUNASR_HTTP_BASE_URL:http://127.0.0.1:8002}
+  asr-path: ${FUNASR_ASR_PATH:/asr}
+  health-path: ${FUNASR_HEALTH_PATH:/}
+  ws-url: ${FUNASR_WS_URL:ws://127.0.0.1:10095}
+  connect-timeout-ms: ${FUNASR_CONNECT_TIMEOUT_MS:5000}
+  read-timeout-ms: ${FUNASR_READ_TIMEOUT_MS:60000}
+  realtime-frame-duration-ms: ${FUNASR_REALTIME_FRAME_DURATION_MS:60}
+  realtime-idle-timeout-ms: ${FUNASR_REALTIME_IDLE_TIMEOUT_MS:1500}
+  realtime-overall-timeout-ms: ${FUNASR_REALTIME_OVERALL_TIMEOUT_MS:10000}
+
+tts:
+  http-base-url: ${TTS_HTTP_BASE_URL:http://127.0.0.1:8003}
+  synthesize-path: ${TTS_SYNTHESIZE_PATH:/synthesize}
+  health-path: ${TTS_HEALTH_PATH:/health}
+  connect-timeout-ms: ${TTS_CONNECT_TIMEOUT_MS:5000}
+  read-timeout-ms: ${TTS_READ_TIMEOUT_MS:300000}
+
+voiceprint:
+  http-base-url: ${VOICEPRINT_HTTP_BASE_URL:http://127.0.0.1:8004}
+  compare-path: ${VOICEPRINT_COMPARE_PATH:/verify}
+  health-path: ${VOICEPRINT_HEALTH_PATH:/}
+  connect-timeout-ms: ${VOICEPRINT_CONNECT_TIMEOUT_MS:5000}
+  read-timeout-ms: ${VOICEPRINT_READ_TIMEOUT_MS:300000}

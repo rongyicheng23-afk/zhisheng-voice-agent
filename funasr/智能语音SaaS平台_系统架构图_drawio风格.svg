@@ -1,0 +1,94 @@
+<svg width="2200" height="1280" viewBox="0 0 2200 1280" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0L12 6L0 12V0Z" fill="#6B7280"/>
+    </marker>
+    <style>
+      .title { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 30px; font-weight: 700; fill: #2d3e5e; }
+      .subtitle { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 14px; fill: #6b778c; }
+      .boxTitle { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 26px; font-weight: 700; fill: #334155; }
+      .boxSub { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 15px; fill: #64748B; }
+      .smallTitle { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 22px; font-weight: 700; fill: #334155; }
+      .smallSub { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 14px; fill: #64748B; }
+      .tag { font-family: Arial, "Microsoft YaHei", sans-serif; font-size: 14px; font-weight: 700; fill: #475569; }
+    </style>
+  </defs>
+
+  <rect width="2200" height="1280" fill="#FFFFFF"/>
+
+  <text x="1100" y="64" text-anchor="middle" class="title">面向多场景交互的智能语音 SaaS 平台系统架构图</text>
+  <text x="1100" y="90" text-anchor="middle" class="subtitle">draw.io 风格重绘：矩形模块 + 标准直角连线 + 简洁标注</text>
+
+  <!-- Browser -->
+  <rect x="845" y="140" width="510" height="108" rx="8" fill="#F8FAFC" stroke="#94A3B8" stroke-width="2"/>
+  <text x="1100" y="183" text-anchor="middle" class="boxTitle">用户浏览器</text>
+  <text x="1100" y="214" text-anchor="middle" class="boxSub">学生 / 教师 / 会议参与者通过浏览器访问平台</text>
+
+  <!-- Vue -->
+  <rect x="770" y="330" width="660" height="128" rx="8" fill="#EFF6FF" stroke="#94A3B8" stroke-width="2"/>
+  <text x="1100" y="381" text-anchor="middle" class="boxTitle">Vue3 前端界面</text>
+  <text x="1100" y="412" text-anchor="middle" class="boxSub">统一导航、页面交互、用户登录态、业务结果展示</text>
+  <text x="1100" y="437" text-anchor="middle" class="boxSub">覆盖录音转文字、实时语音、文字转语音、声纹对比、智能纪要等页面</text>
+
+  <!-- Backend -->
+  <rect x="660" y="550" width="880" height="160" rx="8" fill="#F5F3FF" stroke="#94A3B8" stroke-width="2"/>
+  <rect x="915" y="566" width="370" height="28" rx="6" fill="#EDE9FE" stroke="#C4B5FD" stroke-width="1"/>
+  <text x="1100" y="585" text-anchor="middle" class="tag">业务中台层</text>
+  <text x="1100" y="631" text-anchor="middle" class="boxTitle">Spring Boot 统一后端</text>
+  <text x="1100" y="664" text-anchor="middle" class="boxSub">统一鉴权、业务编排、任务调度、结果落库、音频对象管理与导出服务</text>
+  <text x="1100" y="690" text-anchor="middle" class="boxSub">统一接入 /api/funasr、/api/tts、/api/voiceprint、/api/speaker、/api/meeting 等接口域</text>
+
+  <!-- Data layer -->
+  <rect x="170" y="860" width="420" height="150" rx="8" fill="#FFF7ED" stroke="#94A3B8" stroke-width="2"/>
+  <text x="380" y="915" text-anchor="middle" class="smallTitle">MySQL</text>
+  <text x="380" y="946" text-anchor="middle" class="smallSub">用户信息、转写历史、合成历史、</text>
+  <text x="380" y="968" text-anchor="middle" class="smallSub">声纹历史、纪要、片段、版本快照</text>
+
+  <rect x="170" y="1060" width="420" height="130" rx="8" fill="#FFF7ED" stroke="#94A3B8" stroke-width="2"/>
+  <text x="380" y="1112" text-anchor="middle" class="smallTitle">MinIO</text>
+  <text x="380" y="1142" text-anchor="middle" class="smallSub">原始音频、结果音频、片段音频</text>
+  <text x="380" y="1164" text-anchor="middle" class="smallSub">支持回放、下载与复用</text>
+
+  <!-- Algo layer center -->
+  <rect x="760" y="860" width="320" height="130" rx="8" fill="#F0FDF4" stroke="#94A3B8" stroke-width="2"/>
+  <text x="920" y="912" text-anchor="middle" class="smallTitle">XTTS</text>
+  <text x="920" y="942" text-anchor="middle" class="smallSub">文字转语音</text>
+  <text x="920" y="964" text-anchor="middle" class="smallSub">根据参考音频与文本生成目标语音</text>
+
+  <rect x="1120" y="860" width="320" height="130" rx="8" fill="#F0FDF4" stroke="#94A3B8" stroke-width="2"/>
+  <text x="1280" y="912" text-anchor="middle" class="smallTitle">CAM++</text>
+  <text x="1280" y="942" text-anchor="middle" class="smallSub">声纹对比与发言人匹配</text>
+  <text x="1280" y="964" text-anchor="middle" class="smallSub">支撑身份核验与纪要中的说话人识别</text>
+
+  <!-- FunASR right -->
+  <rect x="1610" y="860" width="420" height="150" rx="8" fill="#F0FDF4" stroke="#94A3B8" stroke-width="2"/>
+  <text x="1820" y="915" text-anchor="middle" class="smallTitle">FunASR HTTP</text>
+  <text x="1820" y="946" text-anchor="middle" class="smallSub">离线录音转文字</text>
+  <text x="1820" y="968" text-anchor="middle" class="smallSub">负责音频文件识别与文本结果生成</text>
+
+  <rect x="1610" y="1060" width="420" height="130" rx="8" fill="#F0FDF4" stroke="#94A3B8" stroke-width="2"/>
+  <text x="1820" y="1112" text-anchor="middle" class="smallTitle">FunASR WebSocket</text>
+  <text x="1820" y="1142" text-anchor="middle" class="smallSub">实时语音识别</text>
+  <text x="1820" y="1164" text-anchor="middle" class="smallSub">接收浏览器音频流并返回实时文本结果</text>
+
+  <!-- Main vertical lines -->
+  <path d="M1100 248V330" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1100 458V550" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Fan-out -->
+  <path d="M960 710V790H380V860" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1020 710V1030H380V1060" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1080 710V860" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1140 710V860" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1200 710V790H1820V860" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1260 710V1030H1820V1060" stroke="#6B7280" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Labels -->
+  <text x="240" y="832" class="tag">数据层</text>
+  <text x="890" y="832" class="tag">算法服务层</text>
+  <text x="1728" y="832" class="tag">算法服务层</text>
+
+  <!-- Bottom note -->
+  <rect x="120" y="1230" width="1960" height="34" rx="4" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.5"/>
+  <text x="1100" y="1252" text-anchor="middle" class="subtitle">系统通过 Spring Boot 统一调度多语音能力，形成“浏览器访问 → 前端交互 → 中台处理 → 数据留存 / 算法支撑”的完整链路</text>
+</svg>

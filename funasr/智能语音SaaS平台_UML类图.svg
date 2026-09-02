@@ -1,0 +1,248 @@
+<svg width="2400" height="1560" viewBox="0 0 2400 1560" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="2280" y2="1500" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+    <linearGradient id="title" x1="780" y1="92" x2="1620" y2="92" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4A73FF"/>
+      <stop offset="1" stop-color="#56A4FF"/>
+    </linearGradient>
+    <linearGradient id="blueCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F7FAFF"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+    <linearGradient id="purpleCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F8F7FF"/>
+      <stop offset="1" stop-color="#F0EEFF"/>
+    </linearGradient>
+    <linearGradient id="greenCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F5FEFA"/>
+      <stop offset="1" stop-color="#EBFAF2"/>
+    </linearGradient>
+    <linearGradient id="orangeCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFF9F2"/>
+      <stop offset="1" stop-color="#FFF0E2"/>
+    </linearGradient>
+    <linearGradient id="grayCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FBFCFE"/>
+      <stop offset="1" stop-color="#F2F5FA"/>
+    </linearGradient>
+    <filter id="shellShadow" x="-40" y="-40" width="2480" height="1640" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#203861" flood-opacity="0.10"/>
+    </filter>
+    <filter id="cardShadow" x="-26" y="-26" width="560" height="420" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#28426D" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="2400" height="1560" fill="url(#bg)"/>
+
+  <g filter="url(#shellShadow)">
+    <rect x="46" y="26" width="2308" height="1508" rx="36" fill="white"/>
+  </g>
+
+  <rect x="92" y="54" width="250" height="36" rx="18" fill="#EEF3FF"/>
+  <text x="217" y="77" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" font-weight="700" fill="#5E79FF">UML Class Diagram</text>
+
+  <text x="1200" y="106" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="42" font-weight="700" fill="url(#title)">面向多场景交互的智能语音 SaaS 平台 UML 类图</text>
+  <text x="1200" y="146" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="19" fill="#6D7EA3">以数据库核心实体为基础绘制，使用类图方式表达主键、外键及实体关联关系</text>
+
+  <!-- helper note -->
+  <g filter="url(#cardShadow)">
+    <rect x="1710" y="194" width="536" height="168" rx="28" fill="url(#grayCard)" stroke="#DDE5F2" stroke-width="2"/>
+  </g>
+  <rect x="1740" y="222" width="176" height="40" rx="18" fill="#E9EEF8"/>
+  <text x="1828" y="248" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#425271">建模说明</text>
+  <text x="1760" y="292" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#4D5F84">• 类名对应数据库核心表名</text>
+  <text x="1760" y="326" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#4D5F84">• 属性区展示关键字段，省略部分低价值冗余列</text>
+  <text x="1760" y="360" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#4D5F84">• 音频文件本体统一存储于 MinIO，表中保存 bucket / object</text>
+
+  <!-- user class -->
+  <g filter="url(#cardShadow)">
+    <rect x="120" y="300" width="420" height="330" rx="0" fill="url(#blueCard)" stroke="#D8E3FF" stroke-width="2"/>
+  </g>
+  <rect x="120" y="300" width="420" height="56" fill="#E9F0FF"/>
+  <text x="330" y="334" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5874B9">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="330" y="382" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#23427A">UserInfo</text>
+  <line x1="120" y1="398" x2="540" y2="398" stroke="#D8E3FF" stroke-width="2"/>
+  <text x="146" y="438" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2B395A">+ id : int {PK}</text>
+  <text x="146" y="472" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2B395A">+ username : varchar(64)</text>
+  <text x="146" y="506" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2B395A">+ nick : varchar(64)</text>
+  <text x="146" y="540" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2B395A">+ password : varchar(64)</text>
+  <text x="146" y="574" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2B395A">+ phone : varchar(32)</text>
+  <text x="146" y="608" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2B395A">+ email : varchar(128)</text>
+
+  <!-- audio class -->
+  <g filter="url(#cardShadow)">
+    <rect x="680" y="230" width="440" height="344" rx="0" fill="url(#purpleCard)" stroke="#E1DBFF" stroke-width="2"/>
+  </g>
+  <rect x="680" y="230" width="440" height="56" fill="#EEE8FF"/>
+  <text x="900" y="264" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#7663C4">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="900" y="312" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#3A2C8D">UserAudioHistory</text>
+  <line x1="680" y1="328" x2="1120" y2="328" stroke="#E1DBFF" stroke-width="2"/>
+  <text x="706" y="368" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ id : int {PK}</text>
+  <text x="706" y="402" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ uid : int {FK}</text>
+  <text x="706" y="436" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ original_filename : varchar(255)</text>
+  <text x="706" y="470" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ request_mode : varchar(32)</text>
+  <text x="706" y="504" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ funasr_mode : varchar(32)</text>
+  <text x="706" y="538" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ transcription : longtext</text>
+
+  <!-- tts class -->
+  <g filter="url(#cardShadow)">
+    <rect x="680" y="640" width="440" height="378" rx="0" fill="url(#purpleCard)" stroke="#E1DBFF" stroke-width="2"/>
+  </g>
+  <rect x="680" y="640" width="440" height="56" fill="#EEE8FF"/>
+  <text x="900" y="674" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#7663C4">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="900" y="722" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#3A2C8D">UserTtsHistory</text>
+  <line x1="680" y1="738" x2="1120" y2="738" stroke="#E1DBFF" stroke-width="2"/>
+  <text x="706" y="778" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ id : int {PK}</text>
+  <text x="706" y="812" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ uid : int {FK}</text>
+  <text x="706" y="846" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ input_text : text</text>
+  <text x="706" y="880" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ emotion : varchar(32)</text>
+  <text x="706" y="914" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ language : varchar(32)</text>
+  <text x="706" y="948" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ source_object : varchar(255)</text>
+  <text x="706" y="982" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ result_object : varchar(255)</text>
+
+  <!-- voiceprint class -->
+  <g filter="url(#cardShadow)">
+    <rect x="680" y="1084" width="440" height="380" rx="0" fill="url(#purpleCard)" stroke="#E1DBFF" stroke-width="2"/>
+  </g>
+  <rect x="680" y="1084" width="440" height="56" fill="#EEE8FF"/>
+  <text x="900" y="1118" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#7663C4">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="900" y="1166" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#3A2C8D">UserVoiceprintHistory</text>
+  <line x1="680" y1="1182" x2="1120" y2="1182" stroke="#E1DBFF" stroke-width="2"/>
+  <text x="706" y="1222" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ id : int {PK}</text>
+  <text x="706" y="1256" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ uid : int {FK}</text>
+  <text x="706" y="1290" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ left_object : varchar(255)</text>
+  <text x="706" y="1324" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ right_object : varchar(255)</text>
+  <text x="706" y="1358" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ score : decimal(10,4)</text>
+  <text x="706" y="1392" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F3357">+ same_person : tinyint(1)</text>
+
+  <!-- speaker class -->
+  <g filter="url(#cardShadow)">
+    <rect x="1240" y="252" width="470" height="336" rx="0" fill="url(#greenCard)" stroke="#D9F0E2" stroke-width="2"/>
+  </g>
+  <rect x="1240" y="252" width="470" height="56" fill="#E8F8EE"/>
+  <text x="1475" y="286" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#48936C">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="1475" y="334" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#217A49">UserSpeakerProfile</text>
+  <line x1="1240" y1="350" x2="1710" y2="350" stroke="#D9F0E2" stroke-width="2"/>
+  <text x="1266" y="390" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ id : int {PK}</text>
+  <text x="1266" y="424" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ uid : int {FK}</text>
+  <text x="1266" y="458" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ speaker_name : varchar(64)</text>
+  <text x="1266" y="492" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ speaker_role : varchar(64)</text>
+  <text x="1266" y="526" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ sample_object : varchar(255)</text>
+
+  <!-- meeting note class -->
+  <g filter="url(#cardShadow)">
+    <rect x="1240" y="670" width="470" height="430" rx="0" fill="url(#orangeCard)" stroke="#F5DEBE" stroke-width="2"/>
+  </g>
+  <rect x="1240" y="670" width="470" height="56" fill="#FFF0DA"/>
+  <text x="1475" y="704" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#B67B39">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="1475" y="752" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#9B5F18">UserMeetingNote</text>
+  <line x1="1240" y1="768" x2="1710" y2="768" stroke="#F5DEBE" stroke-width="2"/>
+  <text x="1266" y="808" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ id : int {PK}</text>
+  <text x="1266" y="842" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ uid : int {FK}</text>
+  <text x="1266" y="876" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ title : varchar(128)</text>
+  <text x="1266" y="910" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ scene_type : varchar(32)</text>
+  <text x="1266" y="944" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ selected_speaker_ids_json : text</text>
+  <text x="1266" y="978" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ raw_object : varchar(255)</text>
+  <text x="1266" y="1012" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ full_transcript : longtext</text>
+  <text x="1266" y="1046" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ summary_text : text</text>
+  <text x="1266" y="1080" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ keywords_json / todo_json : text</text>
+
+  <!-- segment class -->
+  <g filter="url(#cardShadow)">
+    <rect x="1820" y="448" width="460" height="390" rx="0" fill="url(#greenCard)" stroke="#D9F0E2" stroke-width="2"/>
+  </g>
+  <rect x="1820" y="448" width="460" height="56" fill="#E8F8EE"/>
+  <text x="2050" y="482" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#48936C">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="2050" y="530" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#217A49">UserMeetingSegment</text>
+  <line x1="1820" y1="546" x2="2280" y2="546" stroke="#D9F0E2" stroke-width="2"/>
+  <text x="1846" y="586" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ id : int {PK}</text>
+  <text x="1846" y="620" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ meeting_id : int {FK}</text>
+  <text x="1846" y="654" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ speaker_profile_id : int {FK, nullable}</text>
+  <text x="1846" y="688" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ segment_index : int</text>
+  <text x="1846" y="722" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ start_ms / end_ms : bigint</text>
+  <text x="1846" y="756" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ speaker_name : varchar(64)</text>
+  <text x="1846" y="790" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#2F4B3A">+ transcript : text</text>
+
+  <!-- revision class -->
+  <g filter="url(#cardShadow)">
+    <rect x="1820" y="904" width="460" height="432" rx="0" fill="url(#orangeCard)" stroke="#F5DEBE" stroke-width="2"/>
+  </g>
+  <rect x="1820" y="904" width="460" height="56" fill="#FFF0DA"/>
+  <text x="2050" y="938" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#B67B39">&lt;&lt;Entity&gt;&gt;</text>
+  <text x="2050" y="986" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#9B5F18">UserMeetingRevision</text>
+  <line x1="1820" y1="1002" x2="2280" y2="1002" stroke="#F5DEBE" stroke-width="2"/>
+  <text x="1846" y="1042" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ id : int {PK}</text>
+  <text x="1846" y="1076" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ meeting_id : int {FK}</text>
+  <text x="1846" y="1110" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ version_no : int</text>
+  <text x="1846" y="1144" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ revision_type : varchar(32)</text>
+  <text x="1846" y="1178" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ title / summary_text : longtext</text>
+  <text x="1846" y="1212" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ full_transcript : longtext</text>
+  <text x="1846" y="1246" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ speaker_blocks_json : longtext</text>
+  <text x="1846" y="1280" font-family="SFMono-Regular, Menlo, monospace" font-size="16" fill="#5A4430">+ speaker_segments_json : longtext</text>
+
+  <!-- note boxes -->
+  <g filter="url(#cardShadow)">
+    <rect x="120" y="1360" width="980" height="162" rx="28" fill="url(#grayCard)" stroke="#DDE5F2" stroke-width="2"/>
+  </g>
+  <rect x="150" y="1388" width="210" height="42" rx="18" fill="#E9EEF8"/>
+  <text x="255" y="1415" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#425271">建模要点</text>
+  <text x="176" y="1462" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#4D5F84">1. 用户实体是核心根实体，各类历史任务、档案与纪要任务都挂接到用户。</text>
+  <text x="176" y="1498" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#4D5F84">2. 纪要业务拆为主表、片段表、版本快照表，兼顾任务查询、细粒度展示与人工修订回溯。</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="1138" y="1360" width="1110" height="162" rx="28" fill="url(#grayCard)" stroke="#DDE5F2" stroke-width="2"/>
+  </g>
+  <rect x="1168" y="1388" width="210" height="42" rx="18" fill="#E9EEF8"/>
+  <text x="1273" y="1415" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#425271">关系说明</text>
+  <text x="1194" y="1462" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#4D5F84">• UserInfo 与各业务实体：1 对多</text>
+  <text x="1194" y="1498" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#4D5F84">• UserMeetingNote 与 UserMeetingSegment / UserMeetingRevision：1 对多；SpeakerProfile 与 Segment：可选关联</text>
+
+  <!-- associations -->
+  <!-- user to audio -->
+  <path d="M540 420H610C646 420 680 390 680 390" stroke="#4E72FF" stroke-width="4.5" fill="none"/>
+  <text x="590" y="402" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">1</text>
+  <text x="660" y="384" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">*</text>
+
+  <!-- user to tts -->
+  <path d="M540 490H600C644 490 680 796 680 796" stroke="#4E72FF" stroke-width="4.5" fill="none"/>
+  <text x="586" y="570" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">1</text>
+  <text x="662" y="786" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">*</text>
+
+  <!-- user to voiceprint -->
+  <path d="M540 540H590C646 540 680 1272 680 1272" stroke="#4E72FF" stroke-width="4.5" fill="none"/>
+  <text x="582" y="708" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">1</text>
+  <text x="662" y="1264" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">*</text>
+
+  <!-- user to speaker -->
+  <path d="M540 454H880C1050 454 1080 454 1240 454" stroke="#4E72FF" stroke-width="4.5" fill="none"/>
+  <text x="720" y="438" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">1</text>
+  <text x="1218" y="438" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">*</text>
+
+  <!-- user to meeting note -->
+  <path d="M540 574H980C1120 574 1240 846 1240 846" stroke="#4E72FF" stroke-width="4.5" fill="none"/>
+  <text x="724" y="558" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">1</text>
+  <text x="1218" y="836" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#4E72FF">*</text>
+
+  <!-- meeting to segment -->
+  <path d="M1710 886H1764C1800 886 1820 730 1820 730" stroke="#2E9B62" stroke-width="4.5" fill="none"/>
+  <text x="1730" y="866" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#2E9B62">1</text>
+  <text x="1798" y="720" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#2E9B62">*</text>
+
+  <!-- meeting to revision -->
+  <path d="M1710 968H1764C1800 968 1820 1120 1820 1120" stroke="#2E9B62" stroke-width="4.5" fill="none"/>
+  <text x="1730" y="950" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#2E9B62">1</text>
+  <text x="1798" y="1112" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#2E9B62">*</text>
+
+  <!-- speaker to segment -->
+  <path d="M1710 510H1770C1796 510 1820 654 1820 654" stroke="#2E9B62" stroke-width="4.5" stroke-dasharray="10 8" fill="none"/>
+  <text x="1732" y="492" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#2E9B62">1</text>
+  <text x="1798" y="646" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#2E9B62">0..*</text>
+
+  <!-- JSON snapshot note -->
+  <path d="M2050 1336V1360" stroke="#7C8EAF" stroke-width="4" stroke-dasharray="10 8"/>
+  <text x="2062" y="1352" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C8EAF">JSON 快照</text>
+</svg>

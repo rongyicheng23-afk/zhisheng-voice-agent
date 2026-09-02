@@ -1,0 +1,227 @@
+<svg width="2200" height="1420" viewBox="0 0 2200 1420" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="140" y1="60" x2="2050" y2="1320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#EEF5FF"/>
+    </linearGradient>
+    <linearGradient id="mainTitle" x1="660" y1="90" x2="1540" y2="90" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4B72FF"/>
+      <stop offset="1" stop-color="#5BA3FF"/>
+    </linearGradient>
+    <linearGradient id="bluePanel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#EFF5FF"/>
+    </linearGradient>
+    <linearGradient id="cyanPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F7FDFF"/>
+      <stop offset="1" stop-color="#ECF8FF"/>
+    </linearGradient>
+    <linearGradient id="tealPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F6FEFB"/>
+      <stop offset="1" stop-color="#ECFAF3"/>
+    </linearGradient>
+    <linearGradient id="amberPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFF9F2"/>
+      <stop offset="1" stop-color="#FFF1E2"/>
+    </linearGradient>
+    <linearGradient id="grayPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FAFBFD"/>
+      <stop offset="1" stop-color="#F1F5FA"/>
+    </linearGradient>
+    <filter id="shadow" x="-40" y="-40" width="2280" height="1500" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#203761" flood-opacity="0.10"/>
+    </filter>
+    <filter id="cardShadow" x="-30" y="-30" width="500" height="320" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#284270" flood-opacity="0.07"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0 0L14 7L0 14V0Z" fill="#4F72FF"/>
+    </marker>
+    <marker id="arrowGray" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0 0L14 7L0 14V0Z" fill="#7A8CAC"/>
+    </marker>
+  </defs>
+
+  <rect width="2200" height="1420" fill="url(#bg)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="48" y="28" width="2104" height="1364" rx="36" fill="white"/>
+  </g>
+
+  <rect x="92" y="56" width="248" height="34" rx="17" fill="#EEF3FF"/>
+  <text x="216" y="78" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" font-weight="700" fill="#5D79FF">Technical Architecture</text>
+
+  <text x="1100" y="108" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="40" font-weight="700" fill="url(#mainTitle)">面向多场景交互的智能语音 SaaS 平台技术架构图</text>
+  <text x="1100" y="146" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="19" fill="#6C7EA3">上半部分为当前原型真实技术架构，下半部分虚线区域为课题后续拟深入研究的 SaaS 化扩展方向</text>
+
+  <g>
+    <rect x="92" y="188" width="2016" height="864" rx="32" fill="#FBFDFF" stroke="#E5EBF6" stroke-width="2"/>
+
+    <g filter="url(#cardShadow)">
+      <rect x="124" y="224" width="280" height="788" rx="28" fill="url(#grayPanel)" stroke="#DCE4F1" stroke-width="2"/>
+    </g>
+    <rect x="166" y="246" width="196" height="36" rx="18" fill="#E9EEF8"/>
+    <text x="264" y="269" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#425270">用户接入层</text>
+
+    <rect x="152" y="314" width="224" height="146" rx="24" fill="white" stroke="#DCE4F1" stroke-width="2"/>
+    <text x="264" y="356" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="27" font-weight="700" fill="#22314F">Web 浏览器</text>
+    <text x="264" y="389" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#64779D">学生 / 教师 / 会议参与者</text>
+    <text x="264" y="416" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#64779D">统一登录与平台访问入口</text>
+
+    <rect x="152" y="484" width="224" height="176" rx="24" fill="white" stroke="#DCE4F1" stroke-width="2"/>
+    <text x="264" y="524" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#22314F">典型使用场景</text>
+    <text x="176" y="567" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 课堂录音整理</text>
+    <text x="176" y="603" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 会议纪要与待办提炼</text>
+    <text x="176" y="639" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 访谈资料归档</text>
+
+    <rect x="152" y="684" width="224" height="288" rx="24" fill="white" stroke="#DCE4F1" stroke-width="2"/>
+    <text x="264" y="724" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#22314F">主要业务入口</text>
+    <text x="176" y="767" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 录音转文字</text>
+    <text x="176" y="803" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 实时语音识别</text>
+    <text x="176" y="839" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 文字转语音</text>
+    <text x="176" y="875" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 声纹对比 / 发言人档案</text>
+    <text x="176" y="911" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• 智能纪要 / 历史追溯</text>
+
+    <g filter="url(#cardShadow)">
+      <rect x="434" y="224" width="390" height="788" rx="28" fill="url(#bluePanel)" stroke="#D8E3FF" stroke-width="2"/>
+    </g>
+    <rect x="541" y="246" width="176" height="36" rx="18" fill="#E9F0FF"/>
+    <text x="629" y="269" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#4668E6">前端交互层</text>
+
+    <rect x="462" y="314" width="334" height="150" rx="24" fill="white" stroke="#D8E3FF" stroke-width="2"/>
+    <text x="629" y="354" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#22427B">Vue3 前端应用</text>
+    <text x="629" y="388" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#6177A0">Vue Router · Vuex · Element Plus</text>
+    <text x="629" y="415" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#6177A0">统一导航 / 登录态管理 / 页面调度</text>
+
+    <rect x="462" y="492" width="334" height="240" rx="24" fill="white" stroke="#D8E3FF" stroke-width="2"/>
+    <text x="629" y="530" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#22427B">页面模块</text>
+    <text x="488" y="574" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• Home / Result：录音转文字与结果展示</text>
+    <text x="488" y="610" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• RealtimeVoice：浏览器麦克风实时识别</text>
+    <text x="488" y="646" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• TextToVoice：参考音频驱动语音合成</text>
+    <text x="488" y="682" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• VoicePrintCompare：双音频声纹比对</text>
+
+    <rect x="462" y="760" width="334" height="212" rx="24" fill="white" stroke="#D8E3FF" stroke-width="2"/>
+    <text x="629" y="798" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#22427B">纪要与复用能力</text>
+    <text x="488" y="842" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• MeetingNotes：上传、历史导入、统计看板</text>
+    <text x="488" y="878" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• MeetingDetail：摘要、片段、校正与导出</text>
+    <text x="488" y="914" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#4B5D83">• History Drawers：回看、回放、后续复用</text>
+
+    <g filter="url(#cardShadow)">
+      <rect x="854" y="224" width="540" height="788" rx="28" fill="url(#cyanPanel)" stroke="#D7E7FF" stroke-width="2"/>
+    </g>
+    <rect x="1009" y="246" width="230" height="36" rx="18" fill="#E8F2FF"/>
+    <text x="1124" y="269" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#4066D6">业务中台层（Spring Boot）</text>
+
+    <rect x="884" y="314" width="480" height="138" rx="24" fill="white" stroke="#D7E7FF" stroke-width="2"/>
+    <text x="1124" y="353" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#21406C">统一接入与鉴权</text>
+    <text x="1124" y="387" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#60749C">AuthUserController · JWT · LoginInterceptor</text>
+    <text x="1124" y="414" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#60749C">API 域：funasr / tts / voiceprint / speaker / meeting</text>
+
+    <rect x="884" y="476" width="480" height="214" rx="24" fill="white" stroke="#D7E7FF" stroke-width="2"/>
+    <text x="1124" y="514" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#21406C">核心业务服务</text>
+    <text x="914" y="558" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#495D83">• ASR：离线识别、实时代理、历史留存</text>
+    <text x="914" y="594" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#495D83">• TTS：合成任务、参考音频、结果回写</text>
+    <text x="914" y="630" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#495D83">• Voiceprint：比对分析、档案管理、分数回写</text>
+    <text x="914" y="666" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#495D83">• Meeting：纪要主表、片段、修订与导出</text>
+
+    <rect x="884" y="714" width="480" height="158" rx="24" fill="white" stroke="#D7E7FF" stroke-width="2"/>
+    <text x="1124" y="752" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#21406C">关键中台能力</text>
+    <text x="914" y="796" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#495D83">• WebSocket 代理：实时音频流转发到 FunASR</text>
+    <text x="914" y="832" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#495D83">• TaskExecutor：智能纪要异步处理</text>
+    <text x="914" y="868" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#495D83">• 版本快照 / 文档导出 / 历史统一回收</text>
+
+    <rect x="884" y="896" width="480" height="76" rx="24" fill="#F5F9FF" stroke="#D7E7FF" stroke-width="2"/>
+    <text x="1124" y="943" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#63789F">统一调度多模型服务，并将结果回写到数据库与对象存储</text>
+
+    <g filter="url(#cardShadow)">
+      <rect x="1424" y="224" width="648" height="788" rx="28" fill="url(#tealPanel)" stroke="#D9F0E2" stroke-width="2"/>
+    </g>
+    <rect x="1566" y="246" width="128" height="36" rx="18" fill="#E8F8EE"/>
+    <text x="1630" y="269" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#2B9A60">算法服务层</text>
+    <rect x="1860" y="246" width="176" height="36" rx="18" fill="#FFF0DA"/>
+    <text x="1948" y="269" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#C07A1D">数据与输出层</text>
+
+    <rect x="1452" y="314" width="374" height="146" rx="24" fill="white" stroke="#D8EFE2" stroke-width="2"/>
+    <text x="1639" y="354" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#217A49">FunASR HTTP</text>
+    <text x="1639" y="388" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">离线录音转文字 · 端口 8002</text>
+    <text x="1639" y="415" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">支持批量上传、文本结果回写与历史追溯</text>
+
+    <rect x="1452" y="478" width="374" height="146" rx="24" fill="white" stroke="#D8EFE2" stroke-width="2"/>
+    <text x="1639" y="518" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#217A49">FunASR WebSocket</text>
+    <text x="1639" y="552" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">实时语音识别 · 端口 10095</text>
+    <text x="1639" y="579" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">接收浏览器 PCM 音频流，实现边录边转写</text>
+
+    <rect x="1452" y="642" width="374" height="146" rx="24" fill="white" stroke="#D8EFE2" stroke-width="2"/>
+    <text x="1639" y="682" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#217A49">XTTS v2</text>
+    <text x="1639" y="716" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">参考音频驱动语音合成 · 端口 8003</text>
+    <text x="1639" y="743" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">支持语言、情感与输出格式参数控制</text>
+
+    <rect x="1452" y="806" width="374" height="166" rx="24" fill="white" stroke="#D8EFE2" stroke-width="2"/>
+    <text x="1639" y="846" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#217A49">CAM++ + FFmpeg</text>
+    <text x="1639" y="880" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">声纹对比 / 发言人匹配 / 音频切段</text>
+    <text x="1639" y="907" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#5E7F68">完成静音检测、时长探测和片段级匹配</text>
+
+    <rect x="1860" y="314" width="176" height="200" rx="24" fill="white" stroke="#F4DDBD" stroke-width="2"/>
+    <text x="1948" y="354" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#9B5F18">MySQL</text>
+    <text x="1890" y="396" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 用户</text>
+    <text x="1890" y="428" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• ASR / TTS / 声纹历史</text>
+    <text x="1890" y="460" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 发言人档案</text>
+    <text x="1890" y="492" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 纪要 / 片段 / 修订</text>
+
+    <rect x="1860" y="536" width="176" height="180" rx="24" fill="white" stroke="#F4DDBD" stroke-width="2"/>
+    <text x="1948" y="576" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#9B5F18">MinIO</text>
+    <text x="1890" y="618" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 原始音频</text>
+    <text x="1890" y="650" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 合成音频</text>
+    <text x="1890" y="682" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 纪要片段音频</text>
+
+    <rect x="1860" y="738" width="176" height="234" rx="24" fill="white" stroke="#F4DDBD" stroke-width="2"/>
+    <text x="1948" y="778" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="26" font-weight="700" fill="#9B5F18">结果输出</text>
+    <text x="1890" y="822" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 历史追溯与回看</text>
+    <text x="1890" y="854" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 原音回放与片段试听</text>
+    <text x="1890" y="886" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• DOCX / TXT / Markdown</text>
+    <text x="1890" y="918" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7C6A58">• 后续复用与再次加工</text>
+
+    <path d="M404 618H422" stroke="#4F72FF" stroke-width="6" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+    <path d="M824 618H842" stroke="#4F72FF" stroke-width="6" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+    <path d="M1394 618H1412" stroke="#4F72FF" stroke-width="6" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+    <path d="M1826 618H1848" stroke="#4F72FF" stroke-width="6" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+
+    <path d="M1948 992V1024H1124V992" stroke="#7A8CAC" stroke-width="3.5" stroke-dasharray="10 10"/>
+    <path d="M1124 992V1024H629V992" stroke="#7A8CAC" stroke-width="3.5" stroke-dasharray="10 10" marker-end="url(#arrowGray)"/>
+    <text x="1278" y="1038" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#7A8CAC">结果落库、对象留存、历史回流前端展示</text>
+  </g>
+
+  <g>
+    <rect x="92" y="1082" width="2016" height="258" rx="32" fill="#F9FBFF" stroke="#9FB3EA" stroke-width="3" stroke-dasharray="12 10"/>
+    <rect x="128" y="1106" width="292" height="36" rx="18" fill="#EEF3FF"/>
+    <text x="274" y="1129" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="20" font-weight="700" fill="#536ED9">课题后续研究层（SaaS 化方向）</text>
+
+    <rect x="128" y="1168" width="368" height="112" rx="24" fill="white" stroke="#D9E4FF" stroke-width="2"/>
+    <text x="312" y="1212" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#3552D0">多租户与权限治理</text>
+    <text x="312" y="1248" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#6578A6">租户隔离、角色分层、配额审计、组织级访问控制</text>
+
+    <rect x="512" y="1168" width="368" height="112" rx="24" fill="white" stroke="#D9E4FF" stroke-width="2"/>
+    <text x="696" y="1212" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#3552D0">服务开放与多端接入</text>
+    <text x="696" y="1248" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#6578A6">Web / API / SDK / 小程序 / 第三方业务系统集成</text>
+
+    <rect x="896" y="1168" width="368" height="112" rx="24" fill="white" stroke="#D9E4FF" stroke-width="2"/>
+    <text x="1080" y="1212" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#3552D0">云部署与弹性扩展</text>
+    <text x="1080" y="1248" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#6578A6">公有云 / 私有云 / 混合云、Docker、服务编排与伸缩</text>
+
+    <rect x="1280" y="1168" width="368" height="112" rx="24" fill="white" stroke="#D9E4FF" stroke-width="2"/>
+    <text x="1464" y="1212" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#3552D0">平台运营与可观测性</text>
+    <text x="1464" y="1248" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#6578A6">任务监控、健康检查、日志分析、使用量统计</text>
+
+    <rect x="1664" y="1168" width="368" height="112" rx="24" fill="white" stroke="#D9E4FF" stroke-width="2"/>
+    <text x="1848" y="1212" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="24" font-weight="700" fill="#3552D0">数据治理与安全合规</text>
+    <text x="1848" y="1248" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#6578A6">数据隔离、生命周期管理、脱敏处理与审计留痕</text>
+  </g>
+
+  <g>
+    <rect x="126" y="1362" width="26" height="10" rx="5" fill="#4F72FF"/>
+    <text x="166" y="1371" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#66799F">实线箭头：核心请求与调度链路</text>
+    <rect x="430" y="1362" width="26" height="10" rx="5" fill="#7A8CAC"/>
+    <text x="470" y="1371" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#66799F">虚线回路：结果落库、音频留存与历史回流</text>
+    <text x="1494" y="1371" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" fill="#66799F">当前原型基础：Vue3 + Spring Boot + FunASR / XTTS / CAM++ + MySQL / MinIO</text>
+  </g>
+</svg>

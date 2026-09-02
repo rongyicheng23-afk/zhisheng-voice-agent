@@ -1,0 +1,3 @@
+[submodule "funasr/FunASR"]
+	path = funasr/FunASR
+	url = https://github.com/alibaba/FunASR.git

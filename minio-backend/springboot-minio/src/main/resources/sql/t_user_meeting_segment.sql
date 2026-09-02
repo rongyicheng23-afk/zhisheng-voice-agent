@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS t_user_meeting_segment (
+    id INT PRIMARY KEY AUTO_INCREMENT COMMENT '主键ID',
+    meeting_id INT NOT NULL COMMENT '纪要ID',
+    segment_index INT NOT NULL COMMENT '片段序号',
+    start_ms BIGINT NOT NULL DEFAULT 0 COMMENT '片段开始时间毫秒',
+    end_ms BIGINT NOT NULL DEFAULT 0 COMMENT '片段结束时间毫秒',
+    speaker_profile_id INT DEFAULT NULL COMMENT '匹配到的发言人档案ID',
+    speaker_name VARCHAR(64) DEFAULT NULL COMMENT '发言人名称',
+    match_score DECIMAL(10, 4) DEFAULT NULL COMMENT '匹配得分',
+    transcript TEXT NULL COMMENT '片段转写文本',
+    segment_bucket VARCHAR(128) DEFAULT NULL COMMENT '片段音频 bucket',
+    segment_object VARCHAR(255) DEFAULT NULL COMMENT '片段音频对象路径',
+    segment_filename VARCHAR(255) DEFAULT NULL COMMENT '片段音频文件名',
+    segment_content_type VARCHAR(128) DEFAULT NULL COMMENT '片段音频 content-type',
+    segment_file_size BIGINT DEFAULT 0 COMMENT '片段音频大小',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    KEY idx_t_user_meeting_segment_meeting_id (meeting_id),
+    KEY idx_t_user_meeting_segment_segment_index (segment_index)
+) COMMENT='智能纪要发言片段表';

@@ -1,0 +1,99 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1600" height="900" fill="#FFFFFF"/>
+
+  <!-- subtle guide rails -->
+  <line x1="120" y1="250" x2="1480" y2="250" stroke="#E8EEF7" stroke-width="2"/>
+  <line x1="120" y1="600" x2="1480" y2="600" stroke="#E8EEF7" stroke-width="2"/>
+
+  <!-- start node -->
+  <rect x="120" y="390" width="120" height="120" rx="10" fill="#FFFFFF" stroke="#6B7C93" stroke-width="3"/>
+  <rect x="145" y="415" width="70" height="70" rx="8" fill="#F7FAFF" stroke="#9DB3D2" stroke-width="2"/>
+
+  <!-- branching arrows -->
+  <path d="M240 450H300C340 450 340 250 380 250" stroke="#667788" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M240 450H300C340 450 340 600 380 600" stroke="#667788" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- arrowheads -->
+  <path d="M365 242L380 250L365 258" stroke="#667788" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M365 592L380 600L365 608" stroke="#667788" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- upper real-time track -->
+  <rect x="380" y="185" width="180" height="130" rx="12" fill="#FFFFFF" stroke="#7A8EA8" stroke-width="3"/>
+  <rect x="620" y="185" width="180" height="130" rx="12" fill="#FFFFFF" stroke="#7A8EA8" stroke-width="3"/>
+  <rect x="860" y="185" width="180" height="130" rx="12" fill="#FFFFFF" stroke="#7A8EA8" stroke-width="3"/>
+  <rect x="1100" y="185" width="180" height="130" rx="12" fill="#F8FBFF" stroke="#6A8FF0" stroke-width="3.5"/>
+
+  <!-- upper inner accents -->
+  <rect x="412" y="217" width="116" height="18" rx="6" fill="#ECF2FB"/>
+  <rect x="412" y="247" width="96" height="12" rx="6" fill="#F3F7FD"/>
+  <rect x="412" y="269" width="82" height="12" rx="6" fill="#F3F7FD"/>
+
+  <rect x="652" y="217" width="116" height="18" rx="6" fill="#ECF2FB"/>
+  <rect x="652" y="247" width="90" height="12" rx="6" fill="#F3F7FD"/>
+  <rect x="652" y="269" width="106" height="12" rx="6" fill="#F3F7FD"/>
+
+  <rect x="892" y="217" width="116" height="18" rx="6" fill="#ECF2FB"/>
+  <rect x="892" y="247" width="96" height="12" rx="6" fill="#F3F7FD"/>
+  <rect x="892" y="269" width="76" height="12" rx="6" fill="#F3F7FD"/>
+
+  <rect x="1132" y="217" width="116" height="18" rx="6" fill="#EEF4FF"/>
+  <rect x="1132" y="247" width="90" height="12" rx="6" fill="#F4F8FF"/>
+  <rect x="1132" y="269" width="96" height="12" rx="6" fill="#F4F8FF"/>
+
+  <!-- lower offline track -->
+  <rect x="380" y="535" width="180" height="130" rx="12" fill="#FFFFFF" stroke="#7A8EA8" stroke-width="3"/>
+  <rect x="620" y="535" width="180" height="130" rx="12" fill="#FFFFFF" stroke="#7A8EA8" stroke-width="3"/>
+  <rect x="860" y="535" width="180" height="130" rx="12" fill="#FFFFFF" stroke="#7A8EA8" stroke-width="3"/>
+  <rect x="1100" y="535" width="180" height="130" rx="12" fill="#F8FBFF" stroke="#6A8FF0" stroke-width="3.5"/>
+
+  <!-- lower inner accents -->
+  <rect x="412" y="567" width="116" height="18" rx="6" fill="#ECF2FB"/>
+  <rect x="412" y="597" width="98" height="12" rx="6" fill="#F3F7FD"/>
+  <rect x="412" y="619" width="84" height="12" rx="6" fill="#F3F7FD"/>
+
+  <rect x="652" y="567" width="116" height="18" rx="6" fill="#ECF2FB"/>
+  <rect x="652" y="597" width="104" height="12" rx="6" fill="#F3F7FD"/>
+  <rect x="652" y="619" width="88" height="12" rx="6" fill="#F3F7FD"/>
+
+  <rect x="892" y="567" width="116" height="18" rx="6" fill="#ECF2FB"/>
+  <rect x="892" y="597" width="92" height="12" rx="6" fill="#F3F7FD"/>
+  <rect x="892" y="619" width="108" height="12" rx="6" fill="#F3F7FD"/>
+
+  <rect x="1132" y="567" width="116" height="18" rx="6" fill="#EEF4FF"/>
+  <rect x="1132" y="597" width="84" height="12" rx="6" fill="#F4F8FF"/>
+  <rect x="1132" y="619" width="102" height="12" rx="6" fill="#F4F8FF"/>
+
+  <!-- track arrows -->
+  <path d="M560 250H620" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M800 250H860" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M1040 250H1100" stroke="#6A8FF0" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M605 242L620 250L605 258" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M845 242L860 250L845 258" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M1085 242L1100 250L1085 258" stroke="#6A8FF0" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <path d="M560 600H620" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M800 600H860" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M1040 600H1100" stroke="#6A8FF0" stroke-width="3.5" stroke-linecap="round"/>
+  <path d="M605 592L620 600L605 608" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M845 592L860 600L845 608" stroke="#6B7C93" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M1085 592L1100 600L1085 608" stroke="#6A8FF0" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- convergence -->
+  <path d="M1280 250H1325C1360 250 1360 450 1395 450" stroke="#667788" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M1280 600H1325C1360 600 1360 450 1395 450" stroke="#667788" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- final merge node -->
+  <rect x="1395" y="390" width="120" height="120" rx="10" fill="#FFFFFF" stroke="#6A8FF0" stroke-width="3.5"/>
+  <rect x="1423" y="418" width="64" height="64" rx="10" fill="#F6FAFF" stroke="#9DB3D2" stroke-width="2"/>
+
+  <!-- final arrowheads -->
+  <path d="M1380 442L1395 450L1380 458" stroke="#667788" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- subtle track tags as abstract bars, no text -->
+  <rect x="380" y="140" width="900" height="20" rx="10" fill="#F6F9FE" stroke="#D6E0F0" stroke-width="1.5"/>
+  <rect x="380" y="700" width="900" height="20" rx="10" fill="#F6F9FE" stroke="#D6E0F0" stroke-width="1.5"/>
+
+  <!-- micro accents -->
+  <circle cx="180" cy="450" r="6" fill="#6A8FF0"/>
+  <circle cx="1455" cy="450" r="6" fill="#6A8FF0"/>
+</svg>

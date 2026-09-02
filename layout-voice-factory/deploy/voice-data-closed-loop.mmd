@@ -1,0 +1,63 @@
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#F7FAFF",
+    "primaryColor": "#EEF4FF",
+    "primaryTextColor": "#21325B",
+    "primaryBorderColor": "#BFD1FF",
+    "lineColor": "#8096D8",
+    "secondaryColor": "#F4F8FF",
+    "tertiaryColor": "#FFFFFF",
+    "fontFamily": "PingFang SC, Microsoft YaHei, sans-serif"
+  }
+}}%%
+
+flowchart LR
+    subgraph IN["业务输入"]
+        A["语音采集<br/>录音 / 实时 / 会议"]
+        B["文本驱动<br/>文本 / 情绪 / 参数"]
+        C["身份样本<br/>声纹 / 参考音频"]
+    end
+
+    subgraph CORE["统一语音中台"]
+        D["Spring Boot 调度中台<br/>鉴权 · 切段 · 调度 · 回写"]
+        E["ASR<br/>Paraformer · VAD"]
+        F["TTS<br/>XTTS-v2"]
+        G["SV<br/>CAM++"]
+        H["纪要提取<br/>摘要 · 待办 · 片段"]
+    end
+
+    subgraph STORE["数据沉淀"]
+        I["MySQL<br/>音频史 / TTS史 / 声纹史 / 纪要表"]
+        J["MinIO<br/>原始音频 / 结果音频 / 片段音频"]
+    end
+
+    K["历史工作台<br/>查询 · 回放 · 校正 · 对比 · 导出"]
+
+    A --> D
+    B --> D
+    C --> D
+
+    D --> E
+    D --> F
+    D --> G
+    D --> H
+
+    D --> I
+    D --> J
+
+    I --> K
+    J --> K
+    K -. 数据回流 .-> IN
+
+    classDef core fill:#5E89FF,color:#ffffff,stroke:#5E89FF,stroke-width:1.5px;
+    classDef soft fill:#F7FAFF,color:#24355C,stroke:#D7E3FF,stroke-width:1.2px;
+    classDef storage fill:#EEF6FF,color:#203159,stroke:#BCD1FF,stroke-width:1.2px;
+    classDef stage fill:#FFFFFF,color:#24355C,stroke:#DCE7FF,stroke-width:1.2px;
+    classDef workbench fill:#EAF1FF,color:#22345C,stroke:#9DB7FF,stroke-width:1.5px;
+
+    class D core;
+    class E,F,G,H soft;
+    class I,J storage;
+    class A,B,C stage;
+    class K workbench;

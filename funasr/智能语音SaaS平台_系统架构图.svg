@@ -1,0 +1,145 @@
+<svg width="2200" height="1400" viewBox="0 0 2200 1400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="2080" y2="1320" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="760" y1="90" x2="1440" y2="90" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4B73FF"/>
+      <stop offset="1" stop-color="#59A6FF"/>
+    </linearGradient>
+    <linearGradient id="userCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FAFBFE"/>
+      <stop offset="1" stop-color="#F2F5FA"/>
+    </linearGradient>
+    <linearGradient id="frontendCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F7FAFF"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+    <linearGradient id="backendCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F8F6FF"/>
+      <stop offset="1" stop-color="#F0EEFF"/>
+    </linearGradient>
+    <linearGradient id="dataCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFF9F2"/>
+      <stop offset="1" stop-color="#FFF0E2"/>
+    </linearGradient>
+    <linearGradient id="algoCard" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#F5FEFA"/>
+      <stop offset="1" stop-color="#EBFAF2"/>
+    </linearGradient>
+    <filter id="shellShadow" x="-40" y="-40" width="2280" height="1480" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#203761" flood-opacity="0.10"/>
+    </filter>
+    <filter id="cardShadow" x="-30" y="-30" width="520" height="280" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#27406B" flood-opacity="0.09"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0 0L14 7L0 14V0Z" fill="#4E72FF"/>
+    </marker>
+    <marker id="arrowGray" markerWidth="14" markerHeight="14" refX="12" refY="7" orient="auto">
+      <path d="M0 0L14 7L0 14V0Z" fill="#7B8DAE"/>
+    </marker>
+  </defs>
+
+  <rect width="2200" height="1400" fill="url(#bg)"/>
+
+  <g filter="url(#shellShadow)">
+    <rect x="46" y="26" width="2108" height="1348" rx="34" fill="white"/>
+  </g>
+
+  <rect x="94" y="54" width="238" height="34" rx="17" fill="#EEF3FF"/>
+  <text x="213" y="76" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="16" font-weight="700" fill="#5C79FF">System Architecture</text>
+
+  <text x="1100" y="106" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="40" font-weight="700" fill="url(#titleGrad)">面向多场景交互的智能语音 SaaS 平台系统架构图</text>
+  <text x="1100" y="144" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#6C7EA3">围绕“用户浏览器 → Vue3 前端界面 → Spring Boot 统一后端 → 数据层 / 算法服务层”展开</text>
+
+  <!-- main flow -->
+  <g filter="url(#cardShadow)">
+    <rect x="830" y="196" width="540" height="132" rx="26" fill="url(#userCard)" stroke="#DCE4F1" stroke-width="2"/>
+  </g>
+  <text x="1100" y="245" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#22314F">用户浏览器</text>
+  <text x="1100" y="283" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#687A9F">学生 / 教师 / 会议参与者通过浏览器访问平台</text>
+
+  <path d="M1100 328V388" stroke="#4E72FF" stroke-width="6" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+
+  <g filter="url(#cardShadow)">
+    <rect x="760" y="410" width="680" height="152" rx="28" fill="url(#frontendCard)" stroke="#D8E3FF" stroke-width="2"/>
+  </g>
+  <text x="1100" y="466" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="34" font-weight="700" fill="#22427A">Vue3 前端界面</text>
+  <text x="1100" y="506" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#6278A0">统一导航、页面交互、用户登录态、业务结果展示</text>
+  <text x="1100" y="535" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#6278A0">覆盖录音转文字、实时语音、文字转语音、声纹对比、智能纪要等功能页面</text>
+
+  <path d="M1100 562V634" stroke="#4E72FF" stroke-width="6" stroke-linecap="round" marker-end="url(#arrowBlue)"/>
+
+  <g filter="url(#cardShadow)">
+    <rect x="650" y="660" width="900" height="210" rx="30" fill="url(#backendCard)" stroke="#E1DBFF" stroke-width="2"/>
+  </g>
+  <rect x="838" y="688" width="524" height="40" rx="20" fill="#EEE8FF"/>
+  <text x="1100" y="714" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="22" font-weight="700" fill="#6852D5">业务中台层</text>
+  <text x="1100" y="772" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="36" font-weight="700" fill="#3A2C8C">Spring Boot 统一后端</text>
+  <text x="1100" y="814" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#655F87">负责统一鉴权、业务编排、任务调度、结果落库、音频对象管理与导出服务</text>
+  <text x="1100" y="845" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#655F87">统一接入 /api/funasr、/api/tts、/api/voiceprint、/api/speaker、/api/meeting 等接口域</text>
+
+  <!-- branches from backend -->
+  <path d="M920 870V942H520V968" stroke="#7B8DAE" stroke-width="4.5" stroke-linecap="round" fill="none" marker-end="url(#arrowGray)"/>
+  <path d="M1040 870V928H1040V952" stroke="#7B8DAE" stroke-width="4.5" stroke-linecap="round" fill="none" marker-end="url(#arrowGray)"/>
+  <path d="M1160 870V928H1160V952" stroke="#7B8DAE" stroke-width="4.5" stroke-linecap="round" fill="none" marker-end="url(#arrowGray)"/>
+  <path d="M1280 870V942H1680V968" stroke="#7B8DAE" stroke-width="4.5" stroke-linecap="round" fill="none" marker-end="url(#arrowGray)"/>
+  <path d="M1340 870V1038H1680V1092" stroke="#7B8DAE" stroke-width="4.5" stroke-linecap="round" fill="none" marker-end="url(#arrowGray)"/>
+  <path d="M860 870V1038H520V1092" stroke="#7B8DAE" stroke-width="4.5" stroke-linecap="round" fill="none" marker-end="url(#arrowGray)"/>
+
+  <!-- left data cards -->
+  <g filter="url(#cardShadow)">
+    <rect x="170" y="968" width="700" height="160" rx="26" fill="url(#dataCard)" stroke="#F3DDBE" stroke-width="2"/>
+  </g>
+  <text x="520" y="1026" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="32" font-weight="700" fill="#9A5E18">MySQL</text>
+  <text x="520" y="1068" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#7B6A58">用户信息、转写历史、合成历史、声纹历史、纪要、片段、版本快照</text>
+  <text x="520" y="1098" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#7B6A58">承担结构化数据管理、结果追溯与业务查询支撑</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="170" y="1092" width="700" height="160" rx="26" fill="url(#dataCard)" stroke="#F3DDBE" stroke-width="2"/>
+  </g>
+  <text x="520" y="1150" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="32" font-weight="700" fill="#9A5E18">MinIO</text>
+  <text x="520" y="1192" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#7B6A58">原始音频、结果音频、片段音频</text>
+  <text x="520" y="1222" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#7B6A58">承担对象存储与音频文件统一留存，支持回放、下载与复用</text>
+
+  <!-- right algorithm cards -->
+  <g filter="url(#cardShadow)">
+    <rect x="1330" y="968" width="700" height="160" rx="26" fill="url(#algoCard)" stroke="#D9F0E2" stroke-width="2"/>
+  </g>
+  <text x="1680" y="1018" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#217A49">FunASR HTTP</text>
+  <text x="1680" y="1056" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">离线录音转文字</text>
+  <text x="1680" y="1088" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">负责音频文件识别与文本结果生成</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="1330" y="1092" width="700" height="160" rx="26" fill="url(#algoCard)" stroke="#D9F0E2" stroke-width="2"/>
+  </g>
+  <text x="1680" y="1142" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="30" font-weight="700" fill="#217A49">FunASR WebSocket</text>
+  <text x="1680" y="1180" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">实时语音识别</text>
+  <text x="1680" y="1212" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">接收浏览器音频流并返回实时文本结果</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="910" y="968" width="540" height="140" rx="26" fill="url(#algoCard)" stroke="#D9F0E2" stroke-width="2"/>
+  </g>
+  <text x="1180" y="1018" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#217A49">XTTS</text>
+  <text x="1180" y="1052" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">文字转语音</text>
+  <text x="1180" y="1080" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">根据参考音频与文本生成目标语音</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="910" y="1112" width="540" height="140" rx="26" fill="url(#algoCard)" stroke="#D9F0E2" stroke-width="2"/>
+  </g>
+  <text x="1180" y="1162" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="28" font-weight="700" fill="#217A49">CAM++</text>
+  <text x="1180" y="1196" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">声纹对比与发言人匹配</text>
+  <text x="1180" y="1224" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="18" fill="#5F7F68">支撑身份核验与纪要中的说话人识别</text>
+
+  <!-- glow circle -->
+  <circle cx="1100" cy="765" r="242" fill="#7C69FF" fill-opacity="0.03"/>
+  <circle cx="1100" cy="765" r="286" stroke="#7C69FF" stroke-opacity="0.10" stroke-width="2" stroke-dasharray="8 10"/>
+
+  <!-- footer -->
+  <g>
+    <rect x="120" y="1290" width="1960" height="48" rx="16" fill="#F7FAFF" stroke="#DCE4F1" stroke-width="1.5"/>
+    <text x="1100" y="1321" text-anchor="middle" font-family="PingFang SC, Microsoft YaHei, sans-serif" font-size="17" fill="#697A9F">系统通过 Spring Boot 统一调度多语音能力，形成“浏览器访问—前端交互—中台处理—数据留存—算法服务支撑”的完整链路</text>
+  </g>
+</svg>

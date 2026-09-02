@@ -1,0 +1,42 @@
+{
+  "name": "layout-voice-factory",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "serve": "vue-cli-service serve",
+    "build": "vue-cli-service build",
+    "lint": "vue-cli-service lint"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^0.21.0",
+    "bootstrap": "^5.0.0-alpha3",
+    "element-plus": "^2.10.4",
+    "markdown-it": "^12.0.2",
+    "mitt": "^2.1.0",
+    "tslib": "^2.8.1",
+    "vue": "^3.0.0",
+    "vue-router": "^4.0.0-rc.3",
+    "vuex": "^4.0.0-rc.1",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^10.0.3",
+    "@types/node": "^24.1.0",
+    "@typescript-eslint/eslint-plugin": "^2.33.0",
+    "@typescript-eslint/parser": "^2.33.0",
+    "@vue/cli-plugin-eslint": "~4.5.0",
+    "@vue/cli-plugin-typescript": "~4.5.0",
+    "@vue/cli-service": "~4.5.0",
+    "@vue/compiler-sfc": "^3.0.0",
+    "@vue/eslint-config-standard": "^5.1.2",
+    "@vue/eslint-config-typescript": "^5.0.2",
+    "eslint": "^6.7.2",
+    "eslint-plugin-import": "^2.20.2",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "eslint-plugin-standard": "^4.0.0",
+    "eslint-plugin-vue": "^7.0.0-0",
+    "typescript": "4.3.5"
+  }
+}

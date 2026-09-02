@@ -1,0 +1,66 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Frontend dependencies and builds
+**/node_modules/
+**/dist/
+
+# Java builds
+**/target/
+
+# Python caches and environments
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.venv/
+**/venv/
+**/*.py[cod]
+**/.mdl
+**/.msc
+**/.mv
+
+# Runtime data, logs and uploads
+tmp/
+**/runtime/
+**/logs/
+**/*.log
+layout-tts-0.22.0/layout/uploads/
+**/mysql-data/
+**/minio-data/
+
+# Local credentials and certificates
+**/.env
+**/.env.*
+**/*.env
+!**/*.env.example
+**/*.key
+**/*.pem
+**/*.p12
+**/*.jks
+
+# Downloaded model weights
+**/*.bin
+**/*.ckpt
+**/*.onnx
+**/*.safetensors
+**/*.pt
+**/*.pth
+!**/dummy_speakers.pth
+
+# Local-only tunnel clients
+layout-voice-factory/deploy/tools/
+
+# Legacy tutorial projects are not part of the active application
+big-event/
+minio-backend/spring-boot-01-minio/
+
+# Local competition planning notes
+中国国际大学生创新大赛2026-命题229参赛总方案.md
+
+# Large local FunASR samples and generated web assets
+funasr/FunASR/demo.wav
+funasr/FunASR/vad_example.wav
+funasr/FunASR/web-pages/node_modules/
+funasr/FunASR/runtime/android/AndroidClient/.gradle/

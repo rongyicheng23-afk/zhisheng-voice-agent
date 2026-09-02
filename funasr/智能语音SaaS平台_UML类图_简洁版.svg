@@ -1,0 +1,206 @@
+<svg width="2200" height="1360" viewBox="0 0 2200 1360" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0L12 6L0 12V0Z" fill="#5D6B89"/>
+    </marker>
+    <style>
+      .title { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 34px; font-weight: 700; fill: #2C4E86; }
+      .subtitle { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 16px; fill: #61708D; }
+      .stereo { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 15px; fill: #6B7894; }
+      .classname { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 24px; font-weight: 700; fill: #23395D; }
+      .field { font-family: Menlo, Consolas, monospace; font-size: 14px; fill: #33425F; }
+      .noteTitle { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 18px; font-weight: 700; fill: #3E4F73; }
+      .noteText { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 15px; fill: #586784; }
+      .rel { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; font-size: 14px; fill: #4A5D85; }
+    </style>
+  </defs>
+
+  <rect width="2200" height="1360" fill="#F7F9FC"/>
+  <rect x="28" y="24" width="2144" height="1312" rx="18" fill="white" stroke="#D9E0EA" stroke-width="2"/>
+
+  <text x="1100" y="84" text-anchor="middle" class="title">面向多场景交互的智能语音 SaaS 平台 UML 类图（简洁版）</text>
+  <text x="1100" y="116" text-anchor="middle" class="subtitle">采用更接近 draw.io / ProcessOn 的规整风格，适合直接放在“数据库设计”章节</text>
+
+  <!-- UserInfo -->
+  <g>
+    <rect x="90" y="180" width="360" height="260" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="90" y="180" width="360" height="52" fill="#EEF3FB" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="270" y="202" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="270" y="222" text-anchor="middle" class="classname">UserInfo</text>
+    <line x1="90" y1="232" x2="450" y2="232" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="112" y="266" class="field">+ id : int {PK}</text>
+    <text x="112" y="296" class="field">+ username : varchar(64)</text>
+    <text x="112" y="326" class="field">+ nick : varchar(64)</text>
+    <text x="112" y="356" class="field">+ password : varchar(64)</text>
+    <text x="112" y="386" class="field">+ phone : varchar(32)</text>
+    <text x="112" y="416" class="field">+ email : varchar(128)</text>
+  </g>
+
+  <!-- Audio -->
+  <g>
+    <rect x="600" y="120" width="430" height="300" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="600" y="120" width="430" height="52" fill="#F2EEFF" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="815" y="142" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="815" y="162" text-anchor="middle" class="classname">UserAudioHistory</text>
+    <line x1="600" y1="172" x2="1030" y2="172" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="622" y="206" class="field">+ id : int {PK}</text>
+    <text x="622" y="236" class="field">+ uid : int {FK}</text>
+    <text x="622" y="266" class="field">+ original_filename : varchar(255)</text>
+    <text x="622" y="296" class="field">+ request_mode : varchar(32)</text>
+    <text x="622" y="326" class="field">+ funasr_mode : varchar(32)</text>
+    <text x="622" y="356" class="field">+ transcription : longtext</text>
+    <text x="622" y="386" class="field">+ raw_result : longtext</text>
+  </g>
+
+  <!-- Speaker -->
+  <g>
+    <rect x="1180" y="120" width="430" height="270" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="1180" y="120" width="430" height="52" fill="#EEF9F2" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1395" y="142" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="1395" y="162" text-anchor="middle" class="classname">UserSpeakerProfile</text>
+    <line x1="1180" y1="172" x2="1610" y2="172" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1202" y="206" class="field">+ id : int {PK}</text>
+    <text x="1202" y="236" class="field">+ uid : int {FK}</text>
+    <text x="1202" y="266" class="field">+ speaker_name : varchar(64)</text>
+    <text x="1202" y="296" class="field">+ speaker_role : varchar(64)</text>
+    <text x="1202" y="326" class="field">+ sample_object : varchar(255)</text>
+    <text x="1202" y="356" class="field">+ status : varchar(32)</text>
+  </g>
+
+  <!-- Segment -->
+  <g>
+    <rect x="1720" y="140" width="380" height="300" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="1720" y="140" width="380" height="52" fill="#EEF9F2" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1910" y="162" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="1910" y="182" text-anchor="middle" class="classname">UserMeetingSegment</text>
+    <line x1="1720" y1="192" x2="2100" y2="192" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1742" y="226" class="field">+ id : int {PK}</text>
+    <text x="1742" y="256" class="field">+ meeting_id : int {FK}</text>
+    <text x="1742" y="286" class="field">+ speaker_profile_id : int {FK?}</text>
+    <text x="1742" y="316" class="field">+ segment_index : int</text>
+    <text x="1742" y="346" class="field">+ start_ms / end_ms : bigint</text>
+    <text x="1742" y="376" class="field">+ speaker_name : varchar(64)</text>
+    <text x="1742" y="406" class="field">+ transcript : text</text>
+  </g>
+
+  <!-- TTS -->
+  <g>
+    <rect x="600" y="500" width="430" height="320" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="600" y="500" width="430" height="52" fill="#F2EEFF" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="815" y="522" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="815" y="542" text-anchor="middle" class="classname">UserTtsHistory</text>
+    <line x1="600" y1="552" x2="1030" y2="552" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="622" y="586" class="field">+ id : int {PK}</text>
+    <text x="622" y="616" class="field">+ uid : int {FK}</text>
+    <text x="622" y="646" class="field">+ input_text : text</text>
+    <text x="622" y="676" class="field">+ emotion : varchar(32)</text>
+    <text x="622" y="706" class="field">+ language : varchar(32)</text>
+    <text x="622" y="736" class="field">+ source_object : varchar(255)</text>
+    <text x="622" y="766" class="field">+ result_object : varchar(255)</text>
+    <text x="622" y="796" class="field">+ status : varchar(32)</text>
+  </g>
+
+  <!-- MeetingNote -->
+  <g>
+    <rect x="1180" y="500" width="430" height="360" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="1180" y="500" width="430" height="52" fill="#FFF3E4" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1395" y="522" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="1395" y="542" text-anchor="middle" class="classname">UserMeetingNote</text>
+    <line x1="1180" y1="552" x2="1610" y2="552" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1202" y="586" class="field">+ id : int {PK}</text>
+    <text x="1202" y="616" class="field">+ uid : int {FK}</text>
+    <text x="1202" y="646" class="field">+ title : varchar(128)</text>
+    <text x="1202" y="676" class="field">+ scene_type : varchar(32)</text>
+    <text x="1202" y="706" class="field">+ selected_speaker_ids_json : text</text>
+    <text x="1202" y="736" class="field">+ raw_object : varchar(255)</text>
+    <text x="1202" y="766" class="field">+ full_transcript : longtext</text>
+    <text x="1202" y="796" class="field">+ summary_text : text</text>
+    <text x="1202" y="826" class="field">+ keywords_json / todo_json : text</text>
+  </g>
+
+  <!-- Voiceprint -->
+  <g>
+    <rect x="600" y="900" width="430" height="300" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="600" y="900" width="430" height="52" fill="#F2EEFF" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="815" y="922" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="815" y="942" text-anchor="middle" class="classname">UserVoiceprintHistory</text>
+    <line x1="600" y1="952" x2="1030" y2="952" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="622" y="986" class="field">+ id : int {PK}</text>
+    <text x="622" y="1016" class="field">+ uid : int {FK}</text>
+    <text x="622" y="1046" class="field">+ left_object : varchar(255)</text>
+    <text x="622" y="1076" class="field">+ right_object : varchar(255)</text>
+    <text x="622" y="1106" class="field">+ score : decimal(10,4)</text>
+    <text x="622" y="1136" class="field">+ same_person : tinyint(1)</text>
+    <text x="622" y="1166" class="field">+ status : varchar(32)</text>
+  </g>
+
+  <!-- Revision -->
+  <g>
+    <rect x="1720" y="560" width="380" height="380" fill="white" stroke="#7E8DAA" stroke-width="2"/>
+    <rect x="1720" y="560" width="380" height="52" fill="#FFF3E4" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1910" y="582" text-anchor="middle" class="stereo">&lt;&lt;Entity&gt;&gt;</text>
+    <text x="1910" y="602" text-anchor="middle" class="classname">UserMeetingRevision</text>
+    <line x1="1720" y1="612" x2="2100" y2="612" stroke="#7E8DAA" stroke-width="2"/>
+    <text x="1742" y="646" class="field">+ id : int {PK}</text>
+    <text x="1742" y="676" class="field">+ meeting_id : int {FK}</text>
+    <text x="1742" y="706" class="field">+ version_no : int</text>
+    <text x="1742" y="736" class="field">+ revision_type : varchar(32)</text>
+    <text x="1742" y="766" class="field">+ title / summary_text : longtext</text>
+    <text x="1742" y="796" class="field">+ full_transcript : longtext</text>
+    <text x="1742" y="826" class="field">+ speaker_blocks_json : longtext</text>
+    <text x="1742" y="856" class="field">+ speaker_segments_json : longtext</text>
+    <text x="1742" y="886" class="field">+ create_time : datetime</text>
+  </g>
+
+  <!-- Notes -->
+  <g>
+    <rect x="120" y="1250" width="920" height="170" fill="white" stroke="#C9D3E2" stroke-width="2"/>
+    <rect x="120" y="1250" width="920" height="44" fill="#F0F3F8" stroke="#C9D3E2" stroke-width="2"/>
+    <text x="580" y="1278" text-anchor="middle" class="noteTitle">说明</text>
+    <text x="148" y="1320" class="noteText">1. 该类图基于项目当前真实核心数据表绘制，省略了部分不影响主线理解的字段。</text>
+    <text x="148" y="1354" class="noteText">2. 用户实体是根实体，各类历史任务、发言人档案和纪要任务均通过 uid 与用户关联。</text>
+    <text x="148" y="1388" class="noteText">3. 纪要模块采用“主表 + 片段表 + 版本快照表”结构，支持结构化展示与人工修订回溯。</text>
+  </g>
+
+  <g>
+    <rect x="1140" y="1250" width="960" height="170" fill="white" stroke="#C9D3E2" stroke-width="2"/>
+    <rect x="1140" y="1250" width="960" height="44" fill="#F0F3F8" stroke="#C9D3E2" stroke-width="2"/>
+    <text x="1620" y="1278" text-anchor="middle" class="noteTitle">关系说明</text>
+    <text x="1168" y="1320" class="noteText">• UserInfo 与 UserAudioHistory / UserTtsHistory / UserVoiceprintHistory / UserSpeakerProfile / UserMeetingNote：1..*</text>
+    <text x="1168" y="1354" class="noteText">• UserMeetingNote 与 UserMeetingSegment / UserMeetingRevision：1..*</text>
+    <text x="1168" y="1388" class="noteText">• UserSpeakerProfile 与 UserMeetingSegment：1 对 0..*，属于可选匹配关系</text>
+  </g>
+
+  <!-- Relations -->
+  <path d="M450 260H520C566 260 600 260 600 260" stroke="#5D6B89" stroke-width="3.5" fill="none"/>
+  <text x="500" y="248" class="rel">1</text>
+  <text x="580" y="248" class="rel">*</text>
+
+  <path d="M450 316H500C560 316 600 620 600 620" stroke="#5D6B89" stroke-width="3.5" fill="none"/>
+  <text x="490" y="338" class="rel">1</text>
+  <text x="582" y="610" class="rel">*</text>
+
+  <path d="M450 352H490C560 352 600 1030 600 1030" stroke="#5D6B89" stroke-width="3.5" fill="none"/>
+  <text x="480" y="384" class="rel">1</text>
+  <text x="582" y="1020" class="rel">*</text>
+
+  <path d="M450 286H870C1020 286 1040 286 1180 286" stroke="#5D6B89" stroke-width="3.5" fill="none"/>
+  <text x="620" y="274" class="rel">1</text>
+  <text x="1160" y="274" class="rel">*</text>
+
+  <path d="M450 386H840C1060 386 1180 760 1180 760" stroke="#5D6B89" stroke-width="3.5" fill="none"/>
+  <text x="612" y="404" class="rel">1</text>
+  <text x="1160" y="750" class="rel">*</text>
+
+  <path d="M1610 760H1660C1710 760 1720 720 1720 720" stroke="#5D6B89" stroke-width="3.5" fill="none"/>
+  <text x="1630" y="744" class="rel">1</text>
+  <text x="1700" y="710" class="rel">*</text>
+
+  <path d="M1610 814H1670C1710 814 1720 744 1720 744" stroke="#5D6B89" stroke-width="3.5" fill="none"/>
+  <text x="1634" y="830" class="rel">1</text>
+  <text x="1700" y="768" class="rel">*</text>
+
+  <path d="M1610 322H1660C1700 322 1720 300 1720 300" stroke="#5D6B89" stroke-width="3.5" stroke-dasharray="8 6" fill="none"/>
+  <text x="1632" y="306" class="rel">1</text>
+  <text x="1700" y="288" class="rel">0..*</text>
+</svg>

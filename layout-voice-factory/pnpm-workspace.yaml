@@ -1,0 +1,6 @@
+allowBuilds:
+  ejs: true
+  fsevents: true
+  highlight.js: true
+  vue-demi: true
+  yorkie: true
