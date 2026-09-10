@@ -19,6 +19,7 @@ public class WebConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(loginInterceptor)
                 .addPathPatterns("/user/**")
+                .addPathPatterns("/api/system/**")
                 .addPathPatterns("/api/funasr/**")
                 .addPathPatterns("/api/funasr/history", "/api/funasr/history/**")
                 .addPathPatterns("/api/funasr/minio/**")
@@ -33,6 +34,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/tts/health",
                         "/api/voiceprint/health",
                         "/error"
+                        "/api/system/status",
                 );
     }
 
