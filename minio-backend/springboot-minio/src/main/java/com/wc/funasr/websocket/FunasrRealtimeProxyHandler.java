@@ -59,7 +59,8 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Integer userId;
         try {
-            userId = requiredAuthenticatedUserId(session.getUri());
+            userId = (Integer) session.getAttributes().get("authenticatedUserId");
+            if (userId == null) throw new IllegalArgumentException("ticket required");
         } catch (IllegalArgumentException ex) {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("auth invalid"));
             return;
@@ -210,14 +211,6 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         }
 
         return offlineText.isEmpty() ? allText.toString() : offlineText.toString();
-    }
-
-    private Integer requiredAuthenticatedUserId(URI uri) {
-        String token = queryParam(uri, "token");
-        if (!StringUtils.hasText(token)) {
-            throw new IllegalArgumentException("token is required");
-        }
-        return AuthContextUtil.parseUserIdFromToken(token);
     }
 
     private String queryParam(URI uri, String name) {

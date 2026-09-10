@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 
 import java.util.List;
 
-@CrossOrigin(originPatterns = "*", allowCredentials = "true")
 @RestController
 public class UserInfoController {
 

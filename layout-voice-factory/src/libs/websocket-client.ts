@@ -1,4 +1,4 @@
-import { getRuntimeWsBaseUrl } from '@/api'
+import { getRuntimeWsBaseUrl, getRuntimeHttpBaseUrl } from '@/api'
 
 /**
  * WebSocket配置接口
@@ -46,6 +46,7 @@ export function WebSocketConnectMethod(config: {
   url?: string
 }) {
   let speechSocket: WebSocket | null = null
+  let connectGeneration = 0
   const msgHandle = config.msgHandle
   const stateHandle = config.stateHandle
 
@@ -58,10 +59,8 @@ export function WebSocketConnectMethod(config: {
       return config.url
     }
 
-    const token = resolveStoredToken()
-    const query = token ? `?token=${encodeURIComponent(token)}` : ''
     const wsBaseUrl = getRuntimeWsBaseUrl()
-    return `${wsBaseUrl}/ws/funasr${query}`
+    return `${wsBaseUrl}/ws/funasr`
   }
 
   // 定义开始连接函数
@@ -75,13 +74,27 @@ export function WebSocketConnectMethod(config: {
     }
 
     if ('WebSocket' in window) {
-      speechSocket = new WebSocket(Uri)
+      const generation = ++connectGeneration
+      fetch(`${getRuntimeHttpBaseUrl()}/api/realtime/tickets`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${resolveStoredToken().replace(/^Bearer /, '')}` }
+      }).then(async response => {
+        if (!response.ok) throw new Error('无法申请连接票据，请重新登录后重试')
+        const issued = await response.json()
+        if (generation !== connectGeneration) return
+        const target = new URL(Uri)
+        target.searchParams.delete('token')
+        target.searchParams.set('ticket', issued.ticket)
+        speechSocket = new WebSocket(target.toString())
       speechSocket.onopen = function(e) { onOpen(e) }
       speechSocket.onclose = function(e) {
         onClose(e)
       }
       speechSocket.onmessage = function(e) { onMessage(e) }
       speechSocket.onerror = function(e) { onError(e) }
+      }).catch(() => {
+        if (generation === connectGeneration) stateHandle?.(2)
+      })
       return 1
     } else {
       console.error('当前浏览器不支持 WebSocket')
@@ -91,6 +104,7 @@ export function WebSocketConnectMethod(config: {
 
   // 定义停止连接函数
   const wsStop = function(): void {
+    connectGeneration++
     if (speechSocket != undefined) {
       speechSocket.close()
       speechSocket = null

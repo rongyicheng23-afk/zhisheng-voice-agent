@@ -8,6 +8,10 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @Configuration
 @EnableWebSocket
 public class FunasrWebSocketConfig implements WebSocketConfigurer {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.wc.realtime.TicketHandshakeInterceptor ticketInterceptor;
+    @org.springframework.beans.factory.annotation.Value("${app.allowed-origins:http://localhost:8081,http://127.0.0.1:8081}")
+    private String allowedOrigins;
 
     private final FunasrRealtimeProxyHandler funasrRealtimeProxyHandler;
 
@@ -18,6 +22,7 @@ public class FunasrWebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(funasrRealtimeProxyHandler, "/ws/funasr")
-                .setAllowedOriginPatterns("*");
+                .addInterceptors(ticketInterceptor)
+                .setAllowedOrigins(allowedOrigins.split(","));
     }
 }
