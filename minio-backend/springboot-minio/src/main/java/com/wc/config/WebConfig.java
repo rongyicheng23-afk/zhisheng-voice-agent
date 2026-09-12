@@ -36,6 +36,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/tts/health",
                         "/api/voiceprint/health",
                         "/api/system/status",
+                        "/api/realtime/internal/tickets/consume",
                         "/error"
                 );
     }

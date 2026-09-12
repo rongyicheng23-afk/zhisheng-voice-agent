@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wc.entity.UserAudioHistory;
 import com.wc.entity.UserInfo;
 import com.wc.funasr.config.FunasrProperties;
+import com.wc.realtime.TurnLifecycle;
 import com.wc.service.UserAudioHistoryService;
 import com.wc.service.UserInfoService;
-import com.wc.utils.AuthContextUtil;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.socket.BinaryMessage;
@@ -109,14 +109,17 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         if (context == null || context.getFunasrSocket() == null) {
             return;
         }
-        captureClientConfig(context, message.getPayload());
-        context.getFunasrSocket().sendText(message.getPayload(), true).join();
+        String upstreamPayload = captureClientConfig(context, message.getPayload());
+        if (upstreamPayload == null) {
+            return;
+        }
+        context.getFunasrSocket().sendText(upstreamPayload, true).join();
     }
 
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) throws Exception {
         ProxySessionContext context = contextMap.get(session.getId());
-        if (context == null || context.getFunasrSocket() == null) {
+        if (context == null || context.getFunasrSocket() == null || !context.acceptsMessages()) {
             return;
         }
         ByteBuffer payload = message.getPayload().asReadOnlyBuffer();
@@ -139,9 +142,21 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         }
     }
 
-    private void captureClientConfig(ProxySessionContext context, String payload) {
+    private String captureClientConfig(ProxySessionContext context, String payload) throws Exception {
         try {
             JsonNode jsonNode = objectMapper.readTree(payload);
+            if (!jsonNode.isObject()) {
+                return payload;
+            }
+            String event = jsonNode.path("event").asText("");
+            String turnId = jsonNode.path("turnId").asText("");
+            if ("turn.interrupt".equals(event)) {
+                interruptTurn(context, turnId);
+                return null;
+            }
+            if (context.startTurn(turnId)) {
+                sendLifecycleEvent(context, "turn.start");
+            }
             String wavName = jsonNode.path("wav_name").asText("");
             if (StringUtils.hasText(wavName)) {
                 context.setWavName(wavName);
@@ -150,7 +165,38 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
             if (StringUtils.hasText(mode)) {
                 context.setFunasrMode(mode);
             }
+            com.fasterxml.jackson.databind.node.ObjectNode upstream = (com.fasterxml.jackson.databind.node.ObjectNode) jsonNode;
+            upstream.remove("turnId");
+            upstream.remove("event");
+            return objectMapper.writeValueAsString(upstream);
         } catch (Exception ignored) {
+            return payload;
+        }
+    }
+
+    private void interruptTurn(ProxySessionContext context, String turnId) throws Exception {
+        if (!context.interruptTurn(turnId)) {
+            return;
+        }
+        WebSocket funasrSocket = context.getFunasrSocket();
+        if (funasrSocket != null) {
+            funasrSocket.abort();
+        }
+        sendLifecycleEvent(context, "turn.cancelled");
+    }
+
+    private void sendLifecycleEvent(ProxySessionContext context, String event) throws Exception {
+        WebSocketSession frontSession = context.getFrontSession();
+        if (!frontSession.isOpen()) {
+            return;
+        }
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "event", event,
+                "sessionId", frontSession.getId(),
+                "turnId", context.getTurnId()
+        ));
+        synchronized (frontSession) {
+            frontSession.sendMessage(new TextMessage(payload));
         }
     }
 
@@ -241,6 +287,10 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
             if (last) {
                 String payload = buffer.toString();
                 buffer.setLength(0);
+                if (!context.acceptsMessages()) {
+                    webSocket.request(1);
+                    return CompletableFuture.completedFuture(null);
+                }
                 context.addServerMessage(payload);
                 try {
                     if (context.getFrontSession().isOpen()) {
@@ -274,6 +324,7 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         private final ByteArrayOutputStream audioBuffer = new ByteArrayOutputStream();
         private final List<String> serverMessages = new CopyOnWriteArrayList<>();
         private final AtomicBoolean finished = new AtomicBoolean(false);
+        private final TurnLifecycle turnLifecycle = new TurnLifecycle();
 
         private volatile WebSocket funasrSocket;
         private volatile String wavName;
@@ -301,6 +352,22 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
 
         private void appendAudio(byte[] bytes) {
             audioBuffer.write(bytes, 0, bytes.length);
+        }
+
+        private boolean startTurn(String turnId) {
+            return turnLifecycle.start(turnId);
+        }
+
+        private boolean interruptTurn(String turnId) {
+            return turnLifecycle.interrupt(turnId);
+        }
+
+        private boolean acceptsMessages() {
+            return turnLifecycle.acceptsMessages();
+        }
+
+        private String getTurnId() {
+            return turnLifecycle.turnId();
         }
 
         private byte[] getAudioBytes() {

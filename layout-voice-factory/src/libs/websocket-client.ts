@@ -15,6 +15,10 @@ export interface WebSocketConfig {
   chunk_interval: number
   /** 识别模式：online/offline/2pass */
   mode: string
+  /** 当前实时交互轮次，用于拒收已取消轮次的迟到结果 */
+  turnId?: string
+  /** 生命周期事件，例如 turn.interrupt */
+  event?: string
 }
 
 /**
@@ -47,6 +51,7 @@ export function WebSocketConnectMethod(config: {
 }) {
   let speechSocket: WebSocket | null = null
   let connectGeneration = 0
+  let activeTurnId: string | null = null
   const msgHandle = config.msgHandle
   const stateHandle = config.stateHandle
 
@@ -124,13 +129,18 @@ export function WebSocketConnectMethod(config: {
 
   // WebSocket连接中的消息与状态响应
   function onOpen(e: Event): void {
+    const randomUuid = (crypto as Crypto & { randomUUID?: () => string }).randomUUID
+    activeTurnId = typeof randomUuid === 'function'
+      ? randomUuid()
+      : `turn-${Date.now()}-${Math.random().toString(36).slice(2)}`
     // 发送json
     const request: WebSocketConfig = {
       "chunk_size": [...REALTIME_CHUNK_SIZE],
       "wav_name": "microphone",
       "is_speaking": true,
       "chunk_interval": REALTIME_CHUNK_INTERVAL,
-      "mode": "2pass"
+      "mode": "2pass",
+      "turnId": activeTurnId
     }
     
     speechSocket?.send(JSON.stringify(request))
@@ -138,6 +148,7 @@ export function WebSocketConnectMethod(config: {
   }
 
   function onClose(e: CloseEvent): void {
+    activeTurnId = null
     stateHandle?.(1) // 1: 连接关闭
   }
 
