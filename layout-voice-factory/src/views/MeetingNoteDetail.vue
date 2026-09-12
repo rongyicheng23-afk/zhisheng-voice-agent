@@ -461,7 +461,7 @@
         <section class="content-card" v-if="detail.speakerSegments?.length">
           <div class="audio-section-head">
             <span>发言片段时间轴</span>
-            <small>{{ editMode ? '可逐条修改发言人与片段文本' : '点击卡片或“跳转原音”可联动原始音频' }}</small>
+            <small>{{ editMode ? '可逐条修改发言人与片段文本' : '匿名标签仅用于本场会议分组；档案匹配需人工确认，不代表身份已核实' }}</small>
           </div>
           <div class="segment-list">
             <article
@@ -478,7 +478,7 @@
                 </div>
                 <div class="segment-score">
                   <span v-if="segment.matchScore !== undefined && segment.matchScore !== null">
-                    匹配度 {{ formatPercent(segment.matchScore) }}
+                    声学相似度 {{ Number(segment.matchScore).toFixed(3) }}（非身份概率）
                   </span>
                   <el-button type="primary" link @click.stop="seekToTime(segment.startMs)">跳转原音</el-button>
                 </div>

@@ -101,7 +101,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
     private static final double MIN_SEGMENT_SECONDS = 1.2d;
     private static final double MAX_SEGMENT_SECONDS = 12.0d;
     private static final long MERGE_MAX_GAP_MS = 1500L;
-    private static final BigDecimal ANONYMOUS_SPEAKER_THRESHOLD = new BigDecimal("0.72");
+    @Resource
+    private com.wc.meeting.diarization.SpeakerDiarizationAdapter diarizationAdapter;
 
     @Resource
     private UserMeetingNoteMapper userMeetingNoteMapper;
@@ -1608,55 +1609,56 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             }
 
             List<UserMeetingSegmentVO> segments = new ArrayList<>();
-            List<SpeakerCluster> anonymousClusters = new ArrayList<>();
-            int segmentIndex = 1;
-            for (TimeRange range : ranges) {
-                Path segmentPath = tempDir.resolve("segment_" + segmentIndex + ".wav");
-                cutSegment(inputPath, range, segmentPath);
-                byte[] segmentBytes = Files.readAllBytes(segmentPath);
-                if (segmentBytes.length == 0) {
+            try (var anonymousSession = diarizationAdapter.openSession()) {
+                int segmentIndex = 1;
+                for (TimeRange range : ranges) {
+                    Path segmentPath = tempDir.resolve("segment_" + segmentIndex + ".wav");
+                    cutSegment(inputPath, range, segmentPath);
+                    byte[] segmentBytes = Files.readAllBytes(segmentPath);
+                    if (segmentBytes.length == 0) {
+                        segmentIndex++;
+                        continue;
+                    }
+
+                    MultipartFile segmentFile = new InMemoryMultipartFile(
+                            "file",
+                            "segment_" + segmentIndex + ".wav",
+                            "audio/wav",
+                            segmentBytes
+                    );
+
+                    JsonNode segmentResponse = funasrService.transcribeAudio(segmentFile, batchSizeS, hotword);
+                    String segmentTranscript = extractAsrText(segmentResponse);
+                    if (!StringUtils.hasText(segmentTranscript)) {
+                        segmentIndex++;
+                        continue;
+                    }
+
+                    SpeakerMatch bestMatch = matchSpeaker(segmentBytes, profiles, sampleAudioBytes);
+                    if (autoDiarization && bestMatch.profileId == null) {
+                        var assignment = anonymousSession.assign(segmentBytes);
+                        bestMatch = new SpeakerMatch(null, assignment.label(), assignment.similarity());
+                    }
+                    UserMeetingSegment segment = new UserMeetingSegment();
+                    segment.setMeetingId(note.getId());
+                    segment.setSegmentIndex(segmentIndex);
+                    segment.setStartMs(Math.round(range.startSeconds * 1000));
+                    segment.setEndMs(Math.round(range.endSeconds * 1000));
+                    segment.setSpeakerProfileId(bestMatch.profileId);
+                    segment.setSpeakerName(bestMatch.speakerName);
+                    segment.setMatchScore(bestMatch.score);
+                    segment.setTranscript(segmentTranscript);
+                    segment.setSegmentFilename("segment_" + segmentIndex + ".wav");
+                    segment.setSegmentContentType("audio/wav");
+                    segment.setSegmentFileSize((long) segmentBytes.length);
+                    segment.setCreateTime(new Date());
+                    segment.setUpdateTime(new Date());
+                    userMeetingSegmentMapper.insert(segment);
+                    uploadSegmentAudio(segment, userId, segmentBytes);
+                    segments.add(toSegmentView(segment));
                     segmentIndex++;
-                    continue;
                 }
-
-                MultipartFile segmentFile = new InMemoryMultipartFile(
-                        "file",
-                        "segment_" + segmentIndex + ".wav",
-                        "audio/wav",
-                        segmentBytes
-                );
-
-                JsonNode segmentResponse = funasrService.transcribeAudio(segmentFile, batchSizeS, hotword);
-                String segmentTranscript = extractAsrText(segmentResponse);
-                if (!StringUtils.hasText(segmentTranscript)) {
-                    segmentIndex++;
-                    continue;
-                }
-
-                SpeakerMatch bestMatch = matchSpeaker(segmentBytes, profiles, sampleAudioBytes);
-                if (autoDiarization && bestMatch.profileId == null) {
-                    bestMatch = assignAnonymousSpeaker(segmentBytes, anonymousClusters);
-                }
-                UserMeetingSegment segment = new UserMeetingSegment();
-                segment.setMeetingId(note.getId());
-                segment.setSegmentIndex(segmentIndex);
-                segment.setStartMs(Math.round(range.startSeconds * 1000));
-                segment.setEndMs(Math.round(range.endSeconds * 1000));
-                segment.setSpeakerProfileId(bestMatch.profileId);
-                segment.setSpeakerName(bestMatch.speakerName);
-                segment.setMatchScore(bestMatch.score);
-                segment.setTranscript(segmentTranscript);
-                segment.setSegmentFilename("segment_" + segmentIndex + ".wav");
-                segment.setSegmentContentType("audio/wav");
-                segment.setSegmentFileSize((long) segmentBytes.length);
-                segment.setCreateTime(new Date());
-                segment.setUpdateTime(new Date());
-                userMeetingSegmentMapper.insert(segment);
-                uploadSegmentAudio(segment, userId, segmentBytes);
-                segments.add(toSegmentView(segment));
-                segmentIndex++;
             }
-
             segments.sort(Comparator.comparing(UserMeetingSegmentVO::getSegmentIndex));
             return segments;
         } finally {
@@ -1709,59 +1711,6 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             }
         }
         return bestMatch;
-    }
-
-    private SpeakerMatch assignAnonymousSpeaker(byte[] segmentBytes, List<SpeakerCluster> clusters) throws IOException {
-        if (clusters.isEmpty()) {
-            SpeakerCluster cluster = new SpeakerCluster(1, "说话人 1", segmentBytes);
-            clusters.add(cluster);
-            return new SpeakerMatch(null, cluster.label, null);
-        }
-
-        SpeakerCluster bestAcceptedCluster = null;
-        BigDecimal bestAcceptedScore = null;
-        BigDecimal bestObservedScore = null;
-        MultipartFile segmentFile = new InMemoryMultipartFile("file2", "segment.wav", "audio/wav", segmentBytes);
-        for (SpeakerCluster cluster : clusters) {
-            MultipartFile sampleFile = new InMemoryMultipartFile(
-                    "file1",
-                    "anonymous_" + cluster.index + ".wav",
-                    "audio/wav",
-                    cluster.representativeBytes
-            );
-            VoiceprintCompareResult compareResult = voiceprintService.compare(sampleFile, segmentFile);
-            if (compareResult.getScore() == null) {
-                continue;
-            }
-            if (bestObservedScore == null || compareResult.getScore().compareTo(bestObservedScore) > 0) {
-                bestObservedScore = compareResult.getScore();
-            }
-            if (isAnonymousSpeakerAccepted(compareResult)
-                    && (bestAcceptedScore == null || compareResult.getScore().compareTo(bestAcceptedScore) > 0)) {
-                bestAcceptedCluster = cluster;
-                bestAcceptedScore = compareResult.getScore();
-            }
-        }
-
-        if (bestAcceptedCluster != null) {
-            return new SpeakerMatch(null, bestAcceptedCluster.label, bestAcceptedScore);
-        }
-
-        SpeakerCluster cluster = new SpeakerCluster(
-                clusters.size() + 1,
-                "说话人 " + (clusters.size() + 1),
-                segmentBytes
-        );
-        clusters.add(cluster);
-        return new SpeakerMatch(null, cluster.label, bestObservedScore);
-    }
-
-    private boolean isAnonymousSpeakerAccepted(VoiceprintCompareResult compareResult) {
-        if (Boolean.TRUE.equals(compareResult.getSamePerson())) {
-            return true;
-        }
-        return compareResult.getScore() != null
-                && compareResult.getScore().compareTo(ANONYMOUS_SPEAKER_THRESHOLD) >= 0;
     }
 
     private List<TimeRange> detectSpeechRanges(Path inputPath) throws Exception {
@@ -3127,15 +3076,4 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
     }
 
-    private static final class SpeakerCluster {
-        private final int index;
-        private final String label;
-        private final byte[] representativeBytes;
-
-        private SpeakerCluster(int index, String label, byte[] representativeBytes) {
-            this.index = index;
-            this.label = label;
-            this.representativeBytes = representativeBytes;
-        }
-    }
 }

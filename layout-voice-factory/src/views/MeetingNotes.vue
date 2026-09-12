@@ -115,7 +115,7 @@
                   <span>无样本时自动区分说话人</span>
                 </div>
                 <div class="speaker-help">
-                  <span>不选择样本时生成“说话人 1/2/3”；选择样本后优先匹配档案，未命中的声音仍会自动分组。</span>
+                  <span>不选择样本时生成本场会议的“说话人 1/2/3”匿名分组，不代表真实身份；选择样本后的档案匹配也需人工确认。未命中的声音仍会自动分组。</span>
                   <el-button type="primary" link @click="openSpeakerDrawer">管理发言人档案</el-button>
                 </div>
               </el-form-item>
