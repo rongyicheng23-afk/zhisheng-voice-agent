@@ -3,6 +3,8 @@ package com.wc.tts.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.wc.tts.config.TtsProperties;
 import com.wc.tts.model.TtsSynthesisResult;
+import com.wc.tts.model.TtsRequestLimits;
+import com.wc.tts.model.TtsUpstreamException;
 import com.wc.tts.service.TtsService;
 import okhttp3.MediaType;
 import okhttp3.MultipartBody;
@@ -65,8 +67,8 @@ public class TtsServiceImpl implements TtsService {
             String language,
             String format
     ) throws IOException {
-        validateAudio(audio);
-        validateText(text);
+        TtsRequestLimits.validateAudio(audio);
+        TtsRequestLimits.validateText(text);
 
         byte[] audioBytes = audio.getBytes();
         MediaType mediaType = MediaType.parse(
@@ -88,18 +90,30 @@ public class TtsServiceImpl implements TtsService {
             multipartBuilder.addFormDataPart("format", format.trim());
         }
 
+        MultipartBody requestBody = multipartBuilder.build();
+        if (requestBody.contentLength() > TtsRequestLimits.MAX_REQUEST_BYTES) {
+            throw new IllegalArgumentException("完整上传请求不能超过20 MB，请缩小参考音频");
+        }
         String requestUrl = buildUrl(ttsProperties.getHttpBaseUrl(), ttsProperties.getSynthesizePath());
         Request request = new Request.Builder()
                 .url(requestUrl)
-                .post(multipartBuilder.build())
+                .post(requestBody)
                 .build();
 
         try (Response response = ttsOkHttpClient.newCall(request).execute()) {
-            byte[] responseBytes = response.body() == null ? new byte[0] : response.body().bytes();
             if (!response.isSuccessful()) {
-                String errorBody = new String(responseBytes);
-                throw new IOException(response.code() + " " + response.message()
-                        + " on POST request for \"" + requestUrl + "\": \"" + errorBody + "\"");
+                throw switch (response.code()) {
+                    case 503, 429 -> new TtsUpstreamException(503, "语音合成服务忙，请稍后手动重试");
+                    case 413 -> new TtsUpstreamException(413, "完整上传请求不能超过20 MB，请缩小参考音频");
+                    case 400 -> new TtsUpstreamException(400, "合成参数无效，请检查文本、参考音频、语言和情感");
+                    default -> new TtsUpstreamException(502, "语音合成服务异常，请稍后重试");
+                };
+            }
+            // Bound allocation even when an upstream response has no Content-Length.
+            byte[] responseBytes = response.body() == null ? new byte[0]
+                    : response.body().byteStream().readNBytes(32 * 1024 * 1024 + 1);
+            if (responseBytes.length <= 44 || responseBytes.length > 32 * 1024 * 1024) {
+                throw new TtsUpstreamException(502, "语音合成返回的音频无效");
             }
 
             TtsSynthesisResult result = new TtsSynthesisResult();
@@ -108,18 +122,12 @@ public class TtsServiceImpl implements TtsService {
             result.setUpstreamFilename(extractFilenameFromDisposition(response.header("Content-Disposition")));
             result.setContentLength(responseBytes.length);
             return result;
-        }
-    }
-
-    private void validateAudio(MultipartFile audio) {
-        if (audio == null || audio.isEmpty()) {
-            throw new IllegalArgumentException("请上传参考音频");
-        }
-    }
-
-    private void validateText(String text) {
-        if (!StringUtils.hasText(text)) {
-            throw new IllegalArgumentException("请输入要合成的文本");
+        } catch (TtsUpstreamException ex) {
+            throw ex;
+        } catch (java.net.SocketTimeoutException ex) {
+            throw new TtsUpstreamException(504, "语音合成等待超时，服务端可能仍在处理，请稍后查看历史再重试");
+        } catch (IOException ex) {
+            throw new TtsUpstreamException(502, "语音合成连接中断，服务端可能仍在处理，请稍后查看历史再重试");
         }
     }
 
