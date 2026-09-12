@@ -18,6 +18,8 @@ export class AudioRecorder {
   private readonly processorBufferSize = 1024
   /** 是否正在录音 */
   private isRecording = false
+  private generation = 0
+  private stream: MediaStream | null = null
   /** 是否已连接WebSocket */
   private isConnected = false
   /** 音频数据发送回调函数 */
@@ -29,6 +31,8 @@ export class AudioRecorder {
    * @param onAudioData 音频数据发送回调函数
    */
   async startRecording(onAudioData: (data: ArrayBuffer) => void): Promise<void> {
+    this.stopRecording()
+    const attempt = ++this.generation
     try {
       this.onAudioDataCallback = onAudioData
       this.isRecording = true
@@ -43,6 +47,11 @@ export class AudioRecorder {
           autoGainControl: true     // 开启自动增益控制，保持音量稳定
         }
       })
+      if (attempt !== this.generation || !this.isRecording) {
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
+      this.stream = stream
       
       // 创建AudioContext音频处理上下文
       this.audioContext = new AudioContext({ sampleRate: 16000 })
@@ -54,7 +63,7 @@ export class AudioRecorder {
       
       // 音频数据处理函数，采用FunASR示例的分块逻辑
       this.processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        if (this.isRecording && this.isConnected) {
+        if (attempt === this.generation && this.isRecording && this.isConnected) {
           const inputData = event.inputBuffer.getChannelData(0)
           
           // 转换为16位PCM格式
@@ -90,7 +99,8 @@ export class AudioRecorder {
       console.log('开始录音 - 采用FunASR分块方式')
       
     } catch (error) {
-      console.error('录音失败:', error)
+      if (attempt !== this.generation) return
+      this.stopRecording()
       throw new Error('无法访问麦克风，请检查权限设置')
     }
   }
@@ -101,17 +111,24 @@ export class AudioRecorder {
    * @returns 剩余的音频数据（如果有的话）
    */
   stopRecording(): ArrayBuffer | null {
+    this.generation += 1
     this.isRecording = false
+    this.stream?.getTracks().forEach(track => track.stop())
+    this.stream = null
     
     // 断开音频处理节点
     if (this.processor) {
       this.processor.disconnect()
+      this.processor.onaudioprocess = null
+      this.processor = null
     }
     if (this.source) {
       this.source.disconnect()
+      this.source = null
     }
     if (this.audioContext) {
-      this.audioContext.close()
+      void this.audioContext.close().catch(() => undefined)
+      this.audioContext = null
     }
     
     // 返回剩余的音频数据，按照FunASR示例的方式
@@ -119,10 +136,10 @@ export class AudioRecorder {
     if (this.sampleBuf.length > 0) {
       remainingData = this.sampleBuf.buffer
       console.log('剩余音频数据，大小:', this.sampleBuf.buffer.byteLength, '字节')
-      // 注意：这里不清空sampleBuf，让调用方处理
     }
     
-    console.log('录音已停止 - FunASR方式')
+    this.sampleBuf = new Int16Array()
+    this.onAudioDataCallback = undefined
     return remainingData
   }
 

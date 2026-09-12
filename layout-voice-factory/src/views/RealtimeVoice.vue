@@ -151,6 +151,13 @@ export default defineComponent({
     const draftTranscriptionText = ref('')
     const recordingStatusText = ref('点击开始录音，系统将实时转换您的语音为文字')
     const isConnected = ref(false)
+    let recordingAttempt = 0
+    let connectionOnly = false
+    let closeTimer: ReturnType<typeof setTimeout> | null = null
+    const clearCloseTimer = () => {
+      if (closeTimer !== null) clearTimeout(closeTimer)
+      closeTimer = null
+    }
     const createIdleWaveform = () => Array.from({ length: 28 }, (_, index) => {
       const centerOffset = Math.abs(index - 13.5)
       return Math.max(0.14, 0.24 - centerOffset * 0.007)
@@ -349,6 +356,10 @@ export default defineComponent({
       msgHandle: (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data)
+          if (data.event === 'asr.completed') {
+            if (closeTimer !== null) finishPendingRecording('识别完成')
+            return
+          }
           const rectxt = data.text || ''
           const asrmodel = data.mode || ''
 
@@ -385,10 +396,11 @@ export default defineComponent({
             startWaveformDecay()
             console.log('WebSocket连接成功')
             // 连接成功后自动开始录音
-            startRecording()
+            if (!connectionOnly && isRecording.value) startRecording()
             break
           case 1: // 连接关闭
             isConnected.value = false
+            audioRecorder.setConnected(false)
             recordingStatusText.value = 'WebSocket连接已关闭'
             if (isRecording.value) {
               isRecording.value = false
@@ -398,6 +410,7 @@ export default defineComponent({
             break
           case 2: // 连接错误
             isConnected.value = false
+            audioRecorder.setConnected(false)
             recordingStatusText.value = 'WebSocket连接错误，请检查服务器是否运行'
             ElMessage.error('WebSocket连接失败，请检查服务器状态')
             if (isRecording.value) {
@@ -476,6 +489,7 @@ export default defineComponent({
       return false
     }
     const startRecording = async () => {
+      const attempt = recordingAttempt
       try {
         await audioRecorder.startRecording((audioData: ArrayBuffer) => {
           updateWaveform(audioData)
@@ -484,9 +498,12 @@ export default defineComponent({
           }
         })
 
+        if (attempt !== recordingAttempt || !isRecording.value) return
         recordingStatusText.value = '正在录音中...请说话'
 
       } catch (error) {
+        if (attempt !== recordingAttempt) return
+        wsConnectMethod.wsStop()
         console.error('录音失败:', error)
         isRecording.value = false
         recordingStatusText.value = '录音失败，请检查麦克风权限'
@@ -499,8 +516,27 @@ export default defineComponent({
       }
     }
 
+    const finishPendingRecording = (status: string) => {
+      clearCloseTimer()
+      wsConnectMethod.wsStop()
+      isConnected.value = false
+      audioRecorder.setConnected(false)
+      recordingStatusText.value = status
+      resetWaveform()
+    }
+
     const stopRecording = () => {
+      clearCloseTimer()
+      const attempt = ++recordingAttempt
       const remainingData = audioRecorder.stopRecording()
+      if (!wsConnectMethod.isConnected()) {
+        wsConnectMethod.wsStop()
+        isConnected.value = false
+        audioRecorder.setConnected(false)
+        recordingStatusText.value = '已取消连接'
+        resetWaveform()
+        return
+      }
 
       if (remainingData && remainingData.byteLength > 0 && wsConnectMethod.isConnected()) {
         wsConnectMethod.wsSend(remainingData)
@@ -518,23 +554,28 @@ export default defineComponent({
 
       recordingStatusText.value = '发送完数据，请等候，正在识别...'
 
-      setTimeout(() => {
-        wsConnectMethod.wsStop()
-        recordingStatusText.value = '识别完成'
-        resetWaveform()
-      }, 800)
+      closeTimer = setTimeout(() => {
+        if (attempt !== recordingAttempt) return
+        finishPendingRecording('等待识别完成超时，连接已关闭')
+      }, 10000)
     }
 
-    const toggleRecording = () => {
+    const toggleRecording = async () => {
       if (!isRecording.value && !ensureUserLoggedIn()) {
         return
       }
 
       isRecording.value = !isRecording.value
       if (isRecording.value) {
+        clearCloseTimer()
+        const attempt = ++recordingAttempt
+        connectionOnly = false
+        isConnected.value = false
+        audioRecorder.setConnected(false)
         draftTranscriptionText.value = ''
         recordingStatusText.value = '正在连接WebSocket...'
-        const result = wsConnectMethod.wsStart()
+        const result = await wsConnectMethod.wsStart()
+        if (attempt !== recordingAttempt) return
         if (result === 1) {
         } else {
           isRecording.value = false
@@ -560,16 +601,28 @@ export default defineComponent({
       ElMessage.success('文本已清空')
     }
 
-    const testConnection = () => {
+    const testConnection = async () => {
       if (!ensureUserLoggedIn()) {
         return
       }
+      if (isRecording.value) return
+      clearCloseTimer()
+      const attempt = ++recordingAttempt
+      connectionOnly = true
+      isConnected.value = false
+      audioRecorder.setConnected(false)
 
       recordingStatusText.value = '正在测试WebSocket连接...'
       ElMessage.info('正在测试WebSocket连接')
 
-      const result = wsConnectMethod.wsStart()
+      const result = await wsConnectMethod.wsStart()
+      if (attempt !== recordingAttempt) return
+      wsConnectMethod.wsStop()
+      isConnected.value = false
+      audioRecorder.setConnected(false)
+      connectionOnly = false
       if (result === 1) {
+        recordingStatusText.value = '连接测试成功（未开启麦克风）'
         ElMessage.success('WebSocket连接测试成功')
       } else {
         ElMessage.error('WebSocket连接测试失败')
@@ -577,10 +630,11 @@ export default defineComponent({
     }
 
     onUnmounted(() => {
+      recordingAttempt += 1
+      clearCloseTimer()
       stopWaveformDecay()
-      if (isRecording.value) {
-        stopRecording()
-      }
+      isRecording.value = false
+      audioRecorder.stopRecording()
       audioRecorder.dispose()
       wsConnectMethod.wsStop()
     })

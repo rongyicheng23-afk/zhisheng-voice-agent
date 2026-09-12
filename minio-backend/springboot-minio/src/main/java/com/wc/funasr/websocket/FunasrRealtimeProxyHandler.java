@@ -7,7 +7,6 @@ import com.wc.entity.UserInfo;
 import com.wc.funasr.config.FunasrProperties;
 import com.wc.service.UserAudioHistoryService;
 import com.wc.service.UserInfoService;
-import com.wc.utils.AuthContextUtil;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.socket.BinaryMessage;
@@ -59,7 +58,8 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Integer userId;
         try {
-            userId = requiredAuthenticatedUserId(session.getUri());
+            userId = (Integer) session.getAttributes().get("realtimeUserId");
+            if (userId == null) throw new IllegalArgumentException("ticket required");
         } catch (IllegalArgumentException ex) {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("auth invalid"));
             return;
@@ -86,6 +86,9 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
                     .join();
             context.setFunasrSocket(funasrSocket);
             contextMap.put(session.getId(), context);
+            // Browser upgrade can complete before the upstream model connects.
+            // Only accept recording after this explicit readiness acknowledgement.
+            session.sendMessage(new TextMessage("{\"event\":\"session.ready\"}"));
         } catch (Exception ex) {
             userAudioHistoryService.finishStreamHistory(
                     history.getId(),
@@ -210,14 +213,6 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         }
 
         return offlineText.isEmpty() ? allText.toString() : offlineText.toString();
-    }
-
-    private Integer requiredAuthenticatedUserId(URI uri) {
-        String token = queryParam(uri, "token");
-        if (!StringUtils.hasText(token)) {
-            throw new IllegalArgumentException("token is required");
-        }
-        return AuthContextUtil.parseUserIdFromToken(token);
     }
 
     private String queryParam(URI uri, String name) {

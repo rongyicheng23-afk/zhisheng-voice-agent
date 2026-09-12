@@ -26,6 +26,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/api/voiceprint/**")
                 .addPathPatterns("/api/speaker/**")
                 .addPathPatterns("/api/meeting/**")
+                .addPathPatterns("/api/realtime/**")
                 .excludePathPatterns(
                         "/user/login",
                         "/user/register",

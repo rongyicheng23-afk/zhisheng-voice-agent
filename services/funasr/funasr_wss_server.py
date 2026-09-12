@@ -258,6 +258,9 @@ async def ws_serve(websocket, path):
                         websocket.vad_pre_idx = 0
                         frames = []
                         websocket.status_dict_vad["cache"] = {}
+                        # All results for this stop request have been sent. The
+                        # browser must drain to this marker, not a fixed delay.
+                        await websocket.send(json.dumps({"event": "asr.completed"}))
                     else:
                         frames = frames[-20:] # 如果还在说话 只保留最后20个音频帧
 
