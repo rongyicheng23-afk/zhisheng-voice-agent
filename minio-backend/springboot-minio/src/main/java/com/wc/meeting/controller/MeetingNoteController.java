@@ -152,7 +152,7 @@ public class MeetingNoteController {
         } catch (IllegalArgumentException ex) {
             return new R(400, ex.getMessage(), null);
         } catch (Exception ex) {
-            return new R(500, ex.getMessage(), null);
+            return new R(500, "校正保存失败，请重新加载纪要核对后重试", null);
         }
     }
 

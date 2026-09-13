@@ -32,10 +32,10 @@
             <span class="meta-chip" v-if="detail.decisionInsights?.length">结论分析 {{ detail.decisionInsights.length }} 条</span>
           </div>
           <div class="toolbar-actions">
-            <el-button v-if="!editMode" type="primary" @click="enterEditMode">
+            <el-button v-if="!editMode" type="primary" :disabled="detail.status !== 'SUCCESS'" @click="enterEditMode">
               开始校正
             </el-button>
-            <el-button v-else @click="cancelEditMode">
+            <el-button v-else :disabled="saveLoading" @click="cancelEditMode">
               取消校正
             </el-button>
             <el-button v-if="editMode" type="success" :loading="saveLoading" @click="saveCorrection">
@@ -463,9 +463,31 @@
             <span>发言片段时间轴</span>
             <small>{{ editMode ? '可逐条修改发言人与片段文本' : '匿名标签仅用于本场会议分组；档案匹配需人工确认，不代表身份已核实' }}</small>
           </div>
+          <div class="meeting-segment-tools">
+            <el-input v-model="segmentQuery" clearable placeholder="搜索片段文本或发言人" aria-label="搜索发言片段" />
+            <el-select v-model="speakerFilter" clearable placeholder="全部发言人" aria-label="筛选发言人">
+              <el-option v-for="group in speakerGroups" :key="group.name" :value="group.name" :label="`${group.name}（${group.count} 段）`" />
+            </el-select>
+            <small>显示 {{ visibleSegments.length }} / {{ segmentEditorList.length }} 段，筛选不会删除或漏存其他片段。</small>
+          </div>
+          <fieldset v-if="editMode" class="meeting-bulk-editor" :disabled="saveLoading">
+            <legend>批量校正发言组</legend>
+            <p>重命名整个组；填写已有组名可合并误分组。只修改本场会议草稿，不代表声纹身份认证。</p>
+            <div class="meeting-segment-tools">
+              <el-select v-model="bulkSource" :disabled="saveLoading" placeholder="选择要校正的组" aria-label="要校正的发言组">
+                <el-option v-for="group in speakerGroups" :key="group.name" :value="group.name" :label="`${group.name}（${group.count} 段）`" />
+              </el-select>
+              <el-input v-model="bulkTarget" :disabled="saveLoading" maxlength="64" placeholder="新名称或已有组名" aria-label="校正后的发言组名" />
+              <el-button :disabled="saveLoading || !bulkAffectedCount || !bulkTarget.trim()" @click="applyBulkSpeaker">
+                应用到草稿（{{ bulkAffectedCount }} 段）
+              </el-button>
+            </div>
+            <small>作用于该组全部片段，不受上方搜索影响。确认后点击“保存校正”；“取消校正”可放弃本次所有草稿改动。</small>
+          </fieldset>
+          <p v-if="!visibleSegments.length">没有符合条件的片段，请清除搜索或发言人筛选。</p>
           <div class="segment-list">
             <article
-              v-for="segment in segmentEditorList"
+              v-for="segment in visibleSegments"
               :key="segment.id || segment.segmentIndex"
               class="segment-item segment-item--clickable"
               :class="{ 'segment-item--active': activeSegmentId === segment.id }"
@@ -485,9 +507,10 @@
               </div>
               <template v-if="editMode">
                 <div class="segment-editor-grid" @click.stop>
-                  <el-input v-model="segment.speakerName" maxlength="64" placeholder="请输入发言人名称" />
+                  <el-input v-model="segment.speakerName" :disabled="saveLoading" maxlength="64" placeholder="请输入发言人名称" />
                   <el-input
                     v-model="segment.transcript"
+                    :disabled="saveLoading"
                     type="textarea"
                     :rows="3"
                     placeholder="请输入该片段的校正文本"
@@ -576,6 +599,10 @@ export default defineComponent({
     const detailLoading = ref(false)
     const saveLoading = ref(false)
     const editMode = ref(false)
+    const segmentQuery = ref('')
+    const speakerFilter = ref('')
+    const bulkSource = ref('')
+    const bulkTarget = ref('')
     const historyDrawerVisible = ref(false)
     const rawAudioUrl = ref('')
     const rawAudioRef = ref<HTMLAudioElement | null>(null)
@@ -700,7 +727,7 @@ export default defineComponent({
       const rowHeight = 82
       const rowGap = 14
       const rulerHeight = 44
-      return (detail.speakerSegments || []).map(segment => {
+      return segmentEditorList.value.map(segment => {
         const startMs = segment.startMs || 0
         const endMs = Math.max(segment.endMs || startMs, startMs + 1)
         const startPx = Math.max(0, Math.round((startMs / timelineTotalMs.value) * timelineCanvasWidth.value))
@@ -770,7 +797,7 @@ export default defineComponent({
     })
     const timelineLegend = computed(() => {
       const uniqueNames = new Map<string, Record<string, string>>()
-      for (const segment of detail.speakerSegments || []) {
+      for (const segment of segmentEditorList.value) {
         const name = segment.speakerName || '未知发言人'
         if (!uniqueNames.has(name)) {
           uniqueNames.set(name, speakerStyle(name))
@@ -788,6 +815,45 @@ export default defineComponent({
       return activeSegment?.id
     })
     const segmentEditorList = computed(() => (editMode.value ? correctionForm.speakerSegments : (detail.speakerSegments || [])))
+    const speakerName = (segment: MeetingSegmentItem) => (segment.speakerName || '').trim() || '未知发言人'
+    const speakerGroups = computed(() => {
+      const counts = new Map<string, number>()
+      for (const segment of segmentEditorList.value) {
+        const name = speakerName(segment)
+        counts.set(name, (counts.get(name) || 0) + 1)
+      }
+      return Array.from(counts, ([name, count]) => ({ name, count }))
+    })
+    const visibleSegments = computed(() => {
+      const query = segmentQuery.value.trim().toLocaleLowerCase()
+      return segmentEditorList.value.filter(segment =>
+        (!speakerFilter.value || speakerName(segment) === speakerFilter.value) &&
+        (!query || `${speakerName(segment)} ${segment.transcript || ''}`.toLocaleLowerCase().includes(query)))
+    })
+    const bulkAffectedCount = computed(() => correctionForm.speakerSegments.filter(segment => speakerName(segment) === bulkSource.value).length)
+    const applyBulkSpeaker = () => {
+      if (!editMode.value || saveLoading.value || !ensureDetailAccess()) return
+      const target = bulkTarget.value.trim()
+      if (!target || target.length > 64 || !bulkAffectedCount.value) {
+        ElMessage.warning('请选择发言组并填写 1–64 字符的新名称')
+        return
+      }
+      if (target === bulkSource.value) {
+        ElMessage.info('名称未变化')
+        return
+      }
+      const count = bulkAffectedCount.value
+      for (const segment of correctionForm.speakerSegments) {
+        if (speakerName(segment) === bulkSource.value) {
+          segment.speakerName = target
+          segment.matchScore = undefined
+        }
+      }
+      if (speakerFilter.value === bulkSource.value) speakerFilter.value = target
+      bulkSource.value = ''
+      bulkTarget.value = ''
+      ElMessage.success(`已校正 ${count} 段草稿，点击“保存校正”后生效`)
+    }
     const selectedLeftRevision = computed(() => revisionList.value.find(item => item.id === leftRevisionId.value) || revisionList.value[0] || null)
     const selectedRightRevision = computed(() => revisionList.value.find(item => item.id === rightRevisionId.value) || revisionList.value[revisionList.value.length - 1] || null)
 
@@ -861,6 +927,9 @@ export default defineComponent({
     }
 
     const hydrateCorrectionForm = () => {
+      bulkSource.value = ''
+      bulkTarget.value = ''
+      speakerFilter.value = ''
       correctionForm.title = detail.title || ''
       correctionForm.summaryText = detail.summaryText || ''
       correctionForm.keywordsText = (detail.keywords || []).join('、')
@@ -1161,17 +1230,22 @@ export default defineComponent({
       if (!ensureDetailAccess()) {
         return
       }
+      if (detail.status !== 'SUCCESS') {
+        ElMessage.warning('请等待纪要处理成功后再校正')
+        return
+      }
       hydrateCorrectionForm()
       editMode.value = true
     }
 
     const cancelEditMode = () => {
+      if (saveLoading.value) return
       editMode.value = false
       hydrateCorrectionForm()
     }
 
     const saveCorrection = async () => {
-      if (!ensureDetailAccess()) {
+      if (saveLoading.value || !editMode.value || !ensureDetailAccess()) {
         return
       }
       if (!correctionForm.title.trim()) {
@@ -1185,7 +1259,9 @@ export default defineComponent({
           summaryText: correctionForm.summaryText.trim(),
           keywords: splitKeywords(correctionForm.keywordsText),
           todos: splitTodos(correctionForm.todosText),
-          fullTranscript: correctionForm.fullTranscript.trim(),
+          // Omit unchanged full text so the backend can rebuild it from corrected segments.
+          fullTranscript: correctionForm.fullTranscript.trim() === (detail.fullTranscript || '').trim()
+            ? undefined : correctionForm.fullTranscript.trim(),
           speakerSegments: correctionForm.speakerSegments.map(segment => ({
             id: segment.id,
             speakerName: (segment.speakerName || '').trim(),
@@ -1197,9 +1273,13 @@ export default defineComponent({
           throw new Error(res.msg || '保存校正失败')
         }
         assignDetail(res.data)
-        await loadRevisions()
         editMode.value = false
         ElMessage.success('校正内容已保存')
+        try {
+          await loadRevisions()
+        } catch {
+          ElMessage.warning('校正已保存，但版本列表刷新失败，请稍后重新打开详情查看')
+        }
       } catch (error: any) {
         if (error?.response?.status === 401) {
           handleUnauthorized()
@@ -1275,6 +1355,14 @@ export default defineComponent({
       activeBlockIndex,
       activeSegmentId,
       segmentEditorList,
+      segmentQuery,
+      speakerFilter,
+      speakerGroups,
+      visibleSegments,
+      bulkSource,
+      bulkTarget,
+      bulkAffectedCount,
+      applyBulkSpeaker,
       previewRawAudio,
       downloadRawAudio,
       exportMeeting,
@@ -1299,6 +1387,24 @@ export default defineComponent({
 </script>
 
 <style scoped>
+.meeting-segment-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+  align-items: center;
+}
+.meeting-segment-tools > .el-input,
+.meeting-segment-tools > .el-select {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.meeting-bulk-editor {
+  border: 1px solid #94a3b8;
+  border-radius: 10px;
+  margin: 16px 0;
+  padding: 16px;
+}
 .meeting-detail-page {
   padding-bottom: 24px;
 }
