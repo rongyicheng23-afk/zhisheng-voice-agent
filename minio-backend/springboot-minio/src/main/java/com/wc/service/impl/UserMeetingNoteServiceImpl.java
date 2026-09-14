@@ -426,6 +426,11 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
 
         List<UserMeetingSegment> segments = listSegmentEntitiesByMeetingId(note.getId());
+        String currentToken = com.wc.meeting.MeetingCorrectionToken.of(note,
+                segments.stream().map(this::toSegmentView).toList());
+        if (!currentToken.equals(request.getCorrectionToken())) {
+            throw new com.wc.meeting.MeetingCorrectionConflict();
+        }
         String previousSegmentText = buildFullTranscriptFromSegments(segments);
         applySegmentCorrections(segments, request.getSpeakerSegments());
 
@@ -775,6 +780,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             lines.add("");
             lines.add("【整理后发言块】");
             appendSpeakerBlocksText(lines, detail.getSpeakerBlocks());
+            lines.addAll(speakerEvidenceLines(detail));
         }
         if (shouldInclude(template.getIncludeFullTranscript())) {
             lines.add("");
@@ -854,6 +860,10 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             lines.add("## 整理后发言块");
             lines.add("");
             appendSpeakerBlocksMarkdown(lines, detail.getSpeakerBlocks());
+            // Quote evidence as a literal block, so source text cannot become Markdown links/HTML.
+            for (String line : speakerEvidenceLines(detail)) {
+                for (String part : line.split("\\R", -1)) lines.add("    " + part);
+            }
         }
         if (shouldInclude(template.getIncludeFullTranscript())) {
             lines.add("");
@@ -1086,6 +1096,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
         if (shouldInclude(template.getIncludeSpeakerBlocks())) {
             addDocxHeading(document, "整理后发言块");
+            for (String line : speakerEvidenceLines(detail)) addDocxParagraph(document, line);
             if (detail.getSpeakerBlocks() == null || detail.getSpeakerBlocks().isEmpty()) {
                 addDocxParagraph(document, "暂无整理后发言块");
             } else {
@@ -1097,6 +1108,25 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             addDocxParagraph(document, safeExportText(detail.getFullTranscript()));
         }
         return document;
+    }
+
+    private List<String> speakerEvidenceLines(UserMeetingNoteVO detail) {
+        List<String> lines = new ArrayList<>();
+        lines.add("按发言人整理（原文摘录；结论、待办候选需核对；发言人不自动等于负责人）");
+        for (var group : com.wc.meeting.MeetingSpeakerOrganizer.organize(detail.getSpeakerSegments())) {
+            lines.add(group.speakerName() + "：" + group.identityNotice());
+            appendEvidenceLines(lines, "观点与发言原文", group.statements());
+            appendEvidenceLines(lines, "结论候选", group.decisionCandidates());
+            appendEvidenceLines(lines, "待办候选", group.todoCandidates());
+        }
+        return lines;
+    }
+
+    private void appendEvidenceLines(List<String> lines, String title,
+            List<com.wc.meeting.MeetingSpeakerOrganizer.Evidence> items) {
+        lines.add(title + (items.isEmpty() ? "：未提取到相关原文" : "："));
+        for (var evidence : items) lines.add("[片段 #" + evidence.segmentId() + " "
+                + formatRange(evidence.startMs(), evidence.endMs()) + "] " + evidence.text());
     }
 
     private void addDocxTitle(XWPFDocument document, String text) {
@@ -2480,7 +2510,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
         List<UserMeetingDecisionInsightVO> result = new ArrayList<>();
         for (String sentence : pickSentencesByMarkers(sentences, MEETING_DECISION_MARKERS, 3)) {
-            result.add(createDecisionInsight("confirmed", "已确认结论", sentence, resolveSpeakerFromSentence(sentence, speakerBlocks)));
+            result.add(createDecisionInsight("candidate", "结论候选（需核对原文）", sentence, resolveSpeakerFromSentence(sentence, speakerBlocks)));
         }
         for (String sentence : pickSentencesByMarkers(sentences, PENDING_DECISION_MARKERS, 3)) {
             result.add(createDecisionInsight("pending", "待确认事项", sentence, resolveSpeakerFromSentence(sentence, speakerBlocks)));
@@ -2539,14 +2569,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
         Matcher matcher = OWNER_ACTION_PATTERN.matcher(task);
         if (matcher.find()) {
-            return normalizeManualSpeakerName(matcher.group(2));
-        }
-        if (knownSpeakers != null) {
-            for (String speakerName : knownSpeakers) {
-                if (StringUtils.hasText(speakerName) && task.contains(speakerName)) {
-                    return speakerName;
-                }
-            }
+            String owner = normalizeManualSpeakerName(matcher.group(2));
+            if (!List.of("我", "我们", "你", "你们", "他", "她", "他们", "大家").contains(owner)) return owner;
         }
         return null;
     }
@@ -2566,15 +2590,16 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         if (!StringUtils.hasText(sentence) || speakerBlocks == null || speakerBlocks.isEmpty()) {
             return null;
         }
+        Set<String> matches = new LinkedHashSet<>();
         for (UserMeetingSpeakerBlockVO block : speakerBlocks) {
             if (block == null || !StringUtils.hasText(block.getTranscript())) {
                 continue;
             }
-            if (block.getTranscript().contains(sentence) || sentence.contains(shortenText(block.getTranscript(), 18))) {
-                return normalizeSpeakerName(block.getSpeakerName());
+            if (block.getTranscript().contains(sentence)) {
+                matches.add(normalizeSpeakerName(block.getSpeakerName()));
             }
         }
-        return null;
+        return matches.size() == 1 ? matches.iterator().next() : null;
     }
 
     private String shortenText(String text, int maxLength) {
@@ -2713,8 +2738,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         if (blockEnd == null || nextStart == null || nextStart - blockEnd > MERGE_MAX_GAP_MS) {
             return false;
         }
-        if (block.getSpeakerProfileId() != null && block.getSpeakerProfileId().equals(segment.getSpeakerProfileId())) {
-            return true;
+        if (block.getSpeakerProfileId() != null || segment.getSpeakerProfileId() != null) {
+            return java.util.Objects.equals(block.getSpeakerProfileId(), segment.getSpeakerProfileId());
         }
         String currentSpeaker = normalizeSpeakerName(block.getSpeakerName());
         String nextSpeaker = normalizeSpeakerName(segment.getSpeakerName());
@@ -2788,6 +2813,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             view.setSpeakerBlocks(blocks);
             view.setSpeakerSegments(segments);
             view.setSpeakerTranscript(buildSpeakerTranscript(blocks));
+            view.setCorrectionToken(com.wc.meeting.MeetingCorrectionToken.of(note, segments));
+            view.setSpeakerSummaries(com.wc.meeting.MeetingSpeakerOrganizer.organize(segments));
         }
         if (!includeSegments) {
             view.setSpeakerBlocks(Collections.emptyList());
@@ -2879,6 +2906,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         view.setSpeakerTranscript(revision.getSpeakerTranscript());
         view.setSpeakerBlocks(parseSpeakerBlockList(revision.getSpeakerBlocksJson()));
         view.setSpeakerSegments(parseSpeakerSegmentList(revision.getSpeakerSegmentsJson()));
+        view.setSpeakerSummaries(com.wc.meeting.MeetingSpeakerOrganizer.organize(view.getSpeakerSegments()));
         view.setCreateTime(revision.getCreateTime());
         return view;
     }

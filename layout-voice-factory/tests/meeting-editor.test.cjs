@@ -5,7 +5,7 @@ const path = require('node:path')
 const vm = require('node:vm')
 const ts = require('typescript')
 
-function setup({ failSave = false, failHistory = false } = {}) {
+function setup({ failSave = false, failHistory = false, conflict = false } = {}) {
   const requests = [], messages = []
   const source = fs.readFileSync(path.join(__dirname, '../src/views/MeetingNoteDetail.vue'), 'utf8')
     .match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
@@ -24,6 +24,7 @@ function setup({ failSave = false, failHistory = false } = {}) {
     '@/api/meeting': {
       applyMeetingCorrection: async (id, payload) => {
         requests.push(payload)
+        if (conflict) return { code: 409, msg: '纪要已被更新，请保留草稿', data: null }
         if (failSave) throw new Error('fixture failure')
         return { code: 200, data: { id, ...payload } }
       },
@@ -35,7 +36,7 @@ function setup({ failSave = false, failHistory = false } = {}) {
   }
   vm.runInNewContext(code, { exports, require: name => modules[name] || {}, URL, console })
   const page = exports.default.setup()
-  Object.assign(page.detail, { title: '会议', status: 'SUCCESS', speakerSegments: [
+  Object.assign(page.detail, { title: '会议', status: 'SUCCESS', correctionToken: 'original-token', speakerSegments: [
     { id: 1, speakerName: '发言人1', transcript: '预算 A', startMs: 0, endMs: 1000, matchScore: .8 },
     { id: 2, speakerName: '发言人1', transcript: '时间 B', startMs: 1000, endMs: 2000 },
     { id: 3, speakerName: '发言人2', transcript: '预算 C', startMs: 2000, endMs: 3000 }
@@ -92,6 +93,26 @@ test('failed save preserves draft for retry', async () => {
   assert.equal(page.editMode.value, true)
   assert.equal(page.correctionForm.speakerSegments[0].speakerName, '人工确认组')
   assert.equal(page.saveLoading.value, false)
+})
+
+test('save sends the version captured on entry and conflict preserves every draft', async () => {
+  const { page, requests, messages } = setup({ conflict: true })
+  page.enterEditMode()
+  page.detail.correctionToken = 'newer-page-token'
+  page.correctionForm.speakerSegments[0].speakerName = '我的新名称'
+  await page.saveCorrection()
+  assert.equal(requests[0].correctionToken, 'original-token')
+  assert.equal(page.editMode.value, true)
+  assert.equal(page.correctionForm.speakerSegments[0].speakerName, '我的新名称')
+  assert.match(messages.at(-1).text, /已被更新/)
+})
+
+test('detail without a correction version cannot start editing', () => {
+  const { page, messages } = setup()
+  page.detail.correctionToken = undefined
+  page.enterEditMode()
+  assert.equal(page.editMode.value, false)
+  assert.match(messages.at(-1).text, /校正版本/)
 })
 
 test('history refresh failure after successful save does not invite duplicate writes', async () => {

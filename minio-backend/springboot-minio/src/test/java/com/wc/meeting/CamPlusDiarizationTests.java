@@ -87,4 +87,28 @@ class CamPlusDiarizationTests {
     @Test void invalidThresholdFailsAtConfigurationTime() {
         assertThrows(IllegalArgumentException.class, () -> new CamPlusDiarizationAdapter(mock(VoiceprintService.class), new BigDecimal("1.1")));
     }
+
+    @Test void ambiguousGroupsStayUnknownAndDoNotBecomeAReference() throws Exception {
+        var service = mock(VoiceprintService.class);
+        when(service.compare(any(), any())).thenReturn(result("0.1", false),
+                result("0.85", true), result("0.83", true), result("0.91", true), result("0.1", false));
+        try (var session = adapter(service).openSession()) {
+            session.assign(new byte[]{1});
+            session.assign(new byte[]{2});
+            assertEquals("未知发言人", session.assign(new byte[]{3}).label());
+            assertEquals("说话人 1", session.assign(new byte[]{4}).label());
+        }
+        verify(service, times(5)).compare(any(), any());
+    }
+
+    @Test void speakerLimitDoesNotForceAnUnmatchedSegmentIntoAnExistingGroup() throws Exception {
+        var service = mock(VoiceprintService.class);
+        when(service.compare(any(), any())).thenReturn(result("0.1", false));
+        var adapter = adapter(service);
+        org.springframework.test.util.ReflectionTestUtils.setField(adapter, "maxSpeakers", 1);
+        try (var session = adapter.openSession()) {
+            session.assign(new byte[]{1});
+            assertEquals("未知发言人", session.assign(new byte[]{2}).label());
+        }
+    }
 }

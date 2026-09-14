@@ -34,4 +34,14 @@ class MeetingCorrectionErrorTests {
         assertEquals(400, result.getCode());
         assertEquals("校正片段无效", result.getMsg());
     }
+
+    @Test void staleDraftReturnsConflictCode() {
+        ThreadLocalUtil.set(Map.of("id", 1));
+        var service = mock(UserMeetingNoteService.class);
+        var request = new MeetingCorrectionRequest();
+        when(service.applyCorrection(7, 1, request)).thenThrow(new MeetingCorrectionConflict());
+        var result = new MeetingNoteController(service).applyCorrection(7, request);
+        assertEquals(409, result.getCode());
+        assertTrue(result.getMsg().contains("保留草稿"));
+    }
 }

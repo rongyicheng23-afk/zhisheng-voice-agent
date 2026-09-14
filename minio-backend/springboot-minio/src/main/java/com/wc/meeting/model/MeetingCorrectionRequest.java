@@ -3,6 +3,9 @@ package com.wc.meeting.model;
 import java.util.List;
 
 public class MeetingCorrectionRequest {
+    private String correctionToken;
+    public String getCorrectionToken() { return correctionToken; }
+    public void setCorrectionToken(String value) { correctionToken = value; }
 
     private String title;
     private String summaryText;

@@ -32,6 +32,7 @@ class MeetingCorrectionTests {
     UserMeetingNote note;
     UserMeetingSegment segment;
     RecordingTransactions tx;
+    UserMeetingNoteServiceImpl target;
 
     @BeforeEach void setup() {
         notes = mock(UserMeetingNoteMapper.class);
@@ -39,7 +40,7 @@ class MeetingCorrectionTests {
         revisions = mock(UserMeetingRevisionMapper.class);
         var users = mock(UserInfoService.class);
         when(users.getUserById(1)).thenReturn(new UserInfo());
-        var target = new UserMeetingNoteServiceImpl();
+        target = new UserMeetingNoteServiceImpl();
         ReflectionTestUtils.setField(target, "userMeetingNoteMapper", notes);
         ReflectionTestUtils.setField(target, "userMeetingSegmentMapper", segments);
         ReflectionTestUtils.setField(target, "userMeetingRevisionMapper", revisions);
@@ -71,6 +72,8 @@ class MeetingCorrectionTests {
     }
     MeetingCorrectionRequest request(MeetingSegmentCorrectionItem... items) {
         var request = new MeetingCorrectionRequest();
+        com.wc.vo.UserMeetingSegmentVO view = ReflectionTestUtils.invokeMethod(target, "toSegmentView", segment);
+        request.setCorrectionToken(com.wc.meeting.MeetingCorrectionToken.of(note, List.of(view)));
         request.setSpeakerSegments(Arrays.asList(items));
         return request;
     }
@@ -79,6 +82,8 @@ class MeetingCorrectionTests {
         var result = service.applyCorrection(7, 1, request(item(11, "人工组", "校正文本")));
         assertNull(segment.getSpeakerProfileId()); assertNull(segment.getMatchScore());
         assertEquals("校正文本", result.getFullTranscript());
+        assertEquals("人工组", result.getSpeakerSummaries().get(0).speakerName());
+        assertEquals("校正文本", result.getSpeakerSummaries().get(0).statements().get(0).text());
         verify(segments).updateCorrection(segment, true);
         verify(revisions).insert(any(UserMeetingRevision.class));
         assertEquals(1, tx.commits); assertEquals(0, tx.rollbacks);
@@ -88,6 +93,31 @@ class MeetingCorrectionTests {
         service.applyCorrection(7, 1, request(item(11, "原组", "新文本")));
         assertEquals(99, segment.getSpeakerProfileId());
         verify(segments).updateCorrection(segment, false);
+    }
+
+    @Test void staleDraftCannotOverwriteNewerTranscript() {
+        var stale = request(item(11, "旧草稿", null));
+        segment.setTranscript("别人刚保存的新内容");
+        assertThrows(MeetingCorrectionConflict.class, () -> service.applyCorrection(7, 1, stale));
+        verify(segments, never()).updateCorrection(any(), anyBoolean());
+        verify(notes, never()).updateById(any(UserMeetingNote.class));
+        verifyNoInteractions(revisions);
+    }
+
+    @Test void staleDraftCannotOverwriteNewerSummaryOrIdentity() {
+        var stale = request(item(11, "旧草稿", null));
+        note.setSummaryText("新的摘要");
+        assertThrows(MeetingCorrectionConflict.class, () -> service.applyCorrection(7, 1, stale));
+        var another = request(item(11, "旧草稿", null));
+        segment.setSpeakerProfileId(100);
+        assertThrows(MeetingCorrectionConflict.class, () -> service.applyCorrection(7, 1, another));
+        verify(segments, never()).updateCorrection(any(), anyBoolean());
+    }
+
+    @Test void missingTokenFailsClosed() {
+        assertThrows(MeetingCorrectionConflict.class,
+                () -> service.applyCorrection(7, 1, new MeetingCorrectionRequest()));
+        verify(segments, never()).updateCorrection(any(), anyBoolean());
     }
     @Test void explicitFullTextTakesPrecedence() {
         var request = request(item(11, "原组", "新文本"));

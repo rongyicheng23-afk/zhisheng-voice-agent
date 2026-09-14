@@ -27,6 +27,8 @@ export interface MeetingNoteResult {
 }
 
 export interface MeetingHistoryItem {
+  correctionToken?: string
+  speakerSummaries?: MeetingSpeakerSummary[]
   id: number
   userId: number
   title: string
@@ -111,6 +113,7 @@ export interface MeetingSegmentCorrectionItem {
 }
 
 export interface MeetingCorrectionPayload {
+  correctionToken?: string
   title?: string
   summaryText?: string
   keywords?: string[]
@@ -151,6 +154,7 @@ export interface MeetingSpeakerBlockItem {
 }
 
 export interface MeetingRevisionItem {
+  speakerSummaries?: MeetingSpeakerSummary[]
   id: number
   meetingId: number
   versionNo: number
@@ -170,6 +174,23 @@ interface BackendResponse<T> {
   code: number
   msg: string
   data: T
+}
+
+export interface MeetingEvidence {
+  segmentId: number
+  startMs?: number
+  endMs?: number
+  text: string
+}
+
+export interface MeetingSpeakerSummary {
+  groupKey: string
+  speakerName: string
+  identityNotice: string
+  segmentCount: number
+  statements: MeetingEvidence[]
+  decisionCandidates: MeetingEvidence[]
+  todoCandidates: MeetingEvidence[]
 }
 
 export interface MeetingHistoryQuery {

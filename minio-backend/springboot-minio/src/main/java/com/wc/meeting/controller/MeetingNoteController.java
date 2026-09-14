@@ -149,6 +149,8 @@ public class MeetingNoteController {
     ) {
         try {
             return R.OK(userMeetingNoteService.applyCorrection(meetingId, currentUserId(), request));
+        } catch (com.wc.meeting.MeetingCorrectionConflict ex) {
+            return new R(409, ex.getMessage(), null);
         } catch (IllegalArgumentException ex) {
             return new R(400, ex.getMessage(), null);
         } catch (Exception ex) {

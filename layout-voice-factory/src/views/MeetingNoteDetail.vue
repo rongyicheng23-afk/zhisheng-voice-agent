@@ -117,7 +117,7 @@
         <section class="analysis-section" v-if="!editMode && (detail.roleInsights?.length || detail.todoChains?.length || detail.decisionInsights?.length)">
           <article class="content-card analysis-card" v-if="detail.roleInsights?.length">
             <div class="structured-card-head">
-              <span>发言角色分析</span>
+              <span>发言角色推测（待核对）</span>
               <small>从发言块里识别主讲、提问、回应与任务承接关系。</small>
             </div>
             <div class="analysis-stack">
@@ -161,8 +161,8 @@
 
           <article class="content-card analysis-card" v-if="detail.decisionInsights?.length">
             <div class="structured-card-head">
-              <span>结论与待确认事项</span>
-              <small>把已明确的结论和仍需确认的事项拆开看，方便会后推进。</small>
+              <span>结论候选与待确认事项</span>
+              <small>按原文关键词提取，可能包含否定或讨论中的方案，请试听核对。</small>
             </div>
             <div class="analysis-stack">
               <article
@@ -180,6 +180,32 @@
                 <small v-if="decision.sourceSpeaker">来源发言人：{{ decision.sourceSpeaker }}</small>
               </article>
             </div>
+          </article>
+        </section>
+
+        <section class="content-card" v-if="!editMode && detail.speakerSummaries?.length">
+          <div class="section-head">
+            <span>按发言人整理 · 原文依据</span>
+            <small>分组与人工名称仅用于本场会议；观点为原文摘录，结论和待办均需核对，发言人不自动等于负责人。</small>
+          </div>
+          <article v-for="group in detail.speakerSummaries" :key="group.groupKey" class="speaker-evidence-card">
+            <h3>{{ group.speakerName }} · {{ group.segmentCount }} 个片段</h3>
+            <p>{{ group.identityNotice }}</p>
+            <details v-for="section in [
+              { title: '观点与发言原文', items: group.statements },
+              { title: '结论候选', items: group.decisionCandidates },
+              { title: '待办候选（负责人及期限需核对）', items: group.todoCandidates }
+            ]" :key="section.title">
+              <summary>{{ section.title }}（{{ section.items.length }}）</summary>
+              <p v-if="!section.items.length">未提取到相关原文</p>
+              <div v-for="(evidence, index) in section.items" :key="evidence.segmentId + '-' + index" class="speaker-evidence-quote">
+                <p>{{ evidence.text }}</p>
+                <el-button size="small" :disabled="!detail.hasRawAudio || evidence.startMs == null"
+                  @click="seekToTime(evidence.startMs)">
+                  原文片段 #{{ evidence.segmentId }} · {{ formatRange(evidence.startMs, evidence.endMs) }} · 试听
+                </el-button>
+              </div>
+            </details>
           </article>
         </section>
 
@@ -307,6 +333,7 @@
               <p>你可以修改标题、摘要、关键词、待办、全文，以及下方每个发言片段的说话人与文本。保存后系统会重新生成发言人纪要和整理后发言块。</p>
             </div>
             <el-tag type="warning" effect="plain">自动结果待确认</el-tag>
+            <el-button :disabled="saveLoading" @click="downloadCorrectionDraft">下载校正草稿</el-button>
           </div>
           <el-form label-position="top" class="editor-form">
             <el-form-item label="纪要标题">
@@ -652,6 +679,7 @@ export default defineComponent({
     })
 
     const correctionForm = reactive({
+      correctionToken: '',
       title: '',
       summaryText: '',
       keywordsText: '',
@@ -888,6 +916,8 @@ export default defineComponent({
     const assignDetail = (data: MeetingHistoryItem) => {
       Object.assign(detail, {
         ...data,
+        correctionToken: data.correctionToken || '',
+        speakerSummaries: Array.isArray(data.speakerSummaries) ? data.speakerSummaries : [],
         keywords: Array.isArray(data.keywords) ? data.keywords : [],
         todos: Array.isArray(data.todos) ? data.todos : [],
         structuredSections: Array.isArray(data.structuredSections) ? data.structuredSections : [],
@@ -931,6 +961,7 @@ export default defineComponent({
       bulkTarget.value = ''
       speakerFilter.value = ''
       correctionForm.title = detail.title || ''
+      correctionForm.correctionToken = detail.correctionToken || ''
       correctionForm.summaryText = detail.summaryText || ''
       correctionForm.keywordsText = (detail.keywords || []).join('、')
       correctionForm.todosText = (detail.todos || []).join('\n')
@@ -1234,6 +1265,10 @@ export default defineComponent({
         ElMessage.warning('请等待纪要处理成功后再校正')
         return
       }
+      if (!detail.correctionToken) {
+        ElMessage.warning('请重新打开纪要以获取最新校正版本')
+        return
+      }
       hydrateCorrectionForm()
       editMode.value = true
     }
@@ -1255,6 +1290,7 @@ export default defineComponent({
       saveLoading.value = true
       try {
         const payload: MeetingCorrectionPayload = {
+          correctionToken: correctionForm.correctionToken,
           title: correctionForm.title.trim(),
           summaryText: correctionForm.summaryText.trim(),
           keywords: splitKeywords(correctionForm.keywordsText),
@@ -1289,6 +1325,20 @@ export default defineComponent({
       } finally {
         saveLoading.value = false
       }
+    }
+
+    const downloadCorrectionDraft = () => {
+      if (!editMode.value || saveLoading.value) return
+      const blob = new Blob([JSON.stringify({ meetingId: meetingId.value, ...correctionForm }, null, 2)],
+        { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `meeting-${meetingId.value}-correction-draft.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
     }
 
     const openHistoryDrawer = () => {
@@ -1334,6 +1384,7 @@ export default defineComponent({
       exportDialogVisible,
       exportTemplateConfig,
       correctionForm,
+      downloadCorrectionDraft,
       revisionList,
       leftRevisionId,
       rightRevisionId,
@@ -1387,6 +1438,16 @@ export default defineComponent({
 </script>
 
 <style scoped>
+.speaker-evidence-card {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #dce4ed;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.speaker-evidence-card summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.speaker-evidence-quote { margin: 8px 0; padding: 12px; background: #f5f7fa; border-radius: 8px; }
+.speaker-evidence-quote p { white-space: pre-wrap; }
 .meeting-segment-tools {
   display: flex;
   flex-wrap: wrap;

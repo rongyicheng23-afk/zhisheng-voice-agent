@@ -6,6 +6,12 @@ import java.util.Date;
 import java.util.List;
 
 public class UserMeetingNoteVO {
+    private String correctionToken;
+    private List<com.wc.meeting.MeetingSpeakerOrganizer.SpeakerSummary> speakerSummaries;
+    public String getCorrectionToken() { return correctionToken; }
+    public void setCorrectionToken(String value) { correctionToken = value; }
+    public List<com.wc.meeting.MeetingSpeakerOrganizer.SpeakerSummary> getSpeakerSummaries() { return speakerSummaries; }
+    public void setSpeakerSummaries(List<com.wc.meeting.MeetingSpeakerOrganizer.SpeakerSummary> value) { speakerSummaries = value; }
 
     private Integer id;
     private Integer userId;
