@@ -8,7 +8,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
-
     private final LoginInterceptor loginInterceptor;
     private final com.wc.realtime.RealtimeOrigins origins;
 
@@ -22,6 +21,7 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addInterceptor(loginInterceptor)
                 .addPathPatterns("/user/**")
                 .addPathPatterns("/api/user", "/api/user/**", "/api/users", "/api/download/**")
+                .addPathPatterns("/api/realtime/**", "/api/system/**")
                 .addPathPatterns("/api/funasr/**")
                 .addPathPatterns("/api/funasr/history", "/api/funasr/history/**")
                 .addPathPatterns("/api/funasr/minio/**")
@@ -29,13 +29,14 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/api/voiceprint/**")
                 .addPathPatterns("/api/speaker/**")
                 .addPathPatterns("/api/meeting/**")
-                .addPathPatterns("/api/realtime/**")
                 .excludePathPatterns(
                         "/user/login",
                         "/user/register",
                         "/api/funasr/health",
                         "/api/tts/health",
                         "/api/voiceprint/health",
+                        "/api/system/status",
+                        "/api/realtime/internal/tickets/consume",
                         "/error"
                 );
     }

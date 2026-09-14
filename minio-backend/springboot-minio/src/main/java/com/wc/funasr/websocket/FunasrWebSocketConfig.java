@@ -10,7 +10,6 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 @Configuration
 @EnableWebSocket
 public class FunasrWebSocketConfig implements WebSocketConfigurer {
-
     private final FunasrRealtimeProxyHandler funasrRealtimeProxyHandler;
     private final RealtimeHandshake handshake;
     private final RealtimeOrigins origins;

@@ -1,1 +1,1 @@
-"""Transport-independent realtime core; no unauthenticated public endpoint."""
+"""Authenticated, transport-independent realtime orchestration building blocks."""

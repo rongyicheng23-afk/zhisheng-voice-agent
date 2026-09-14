@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wc.entity.UserAudioHistory;
 import com.wc.entity.UserInfo;
 import com.wc.funasr.config.FunasrProperties;
+import com.wc.realtime.TurnLifecycle;
 import com.wc.service.UserAudioHistoryService;
 import com.wc.service.UserInfoService;
 import org.springframework.stereotype.Component;
@@ -139,14 +140,18 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         }
         if (message.getPayloadLength() > 16384) { terminate(context, "配置消息过大"); return; }
         context.lastActivity = System.nanoTime();
-        captureClientConfig(context, message.getPayload());
-        context.getFunasrSocket().sendText(message.getPayload(), true).orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).join();
+        String upstreamPayload = captureClientConfig(context, message.getPayload());
+        if (upstreamPayload == null) {
+            return;
+        }
+        context.getFunasrSocket().sendText(upstreamPayload, true)
+                .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).join();
     }
 
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) throws Exception {
         ProxySessionContext context = contextMap.get(session.getId());
-        if (context == null || context.getFunasrSocket() == null) {
+        if (context == null || context.getFunasrSocket() == null || !context.acceptsMessages()) {
             return;
         }
         ByteBuffer payload = message.getPayload().asReadOnlyBuffer();
@@ -173,18 +178,55 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         }
     }
 
-    private void captureClientConfig(ProxySessionContext context, String payload) {
+    private String captureClientConfig(ProxySessionContext context, String payload) throws Exception {
+        JsonNode jsonNode;
         try {
-            JsonNode jsonNode = objectMapper.readTree(payload);
-            String wavName = jsonNode.path("wav_name").asText("");
-            if (StringUtils.hasText(wavName)) {
-                context.setWavName(wavName);
-            }
-            String mode = jsonNode.path("mode").asText("");
-            if (StringUtils.hasText(mode)) {
-                context.setFunasrMode(mode);
-            }
-        } catch (Exception ignored) {
+            jsonNode = objectMapper.readTree(payload);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+            return payload;
+        }
+        if (!jsonNode.isObject()) return payload;
+        String event = jsonNode.path("event").asText("");
+        String turnId = jsonNode.path("turnId").asText("");
+        if ("turn.interrupt".equals(event)) {
+            interruptTurn(context, turnId);
+            return null;
+        }
+        if (context.startTurn(turnId)) sendLifecycleEvent(context, "turn.start");
+        String wavName = jsonNode.path("wav_name").asText("");
+        if (StringUtils.hasText(wavName)) context.setWavName(wavName);
+        String mode = jsonNode.path("mode").asText("");
+        if (StringUtils.hasText(mode)) context.setFunasrMode(mode);
+        com.fasterxml.jackson.databind.node.ObjectNode upstream =
+                (com.fasterxml.jackson.databind.node.ObjectNode) jsonNode;
+        upstream.remove("turnId");
+        upstream.remove("event");
+        return objectMapper.writeValueAsString(upstream);
+    }
+
+    private void interruptTurn(ProxySessionContext context, String turnId) throws Exception {
+        if (!context.interruptTurn(turnId)) {
+            return;
+        }
+        WebSocket funasrSocket = context.getFunasrSocket();
+        if (funasrSocket != null) {
+            funasrSocket.abort();
+        }
+        sendLifecycleEvent(context, "turn.cancelled");
+    }
+
+    private void sendLifecycleEvent(ProxySessionContext context, String event) throws Exception {
+        WebSocketSession frontSession = context.getFrontSession();
+        if (!frontSession.isOpen()) {
+            return;
+        }
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "event", event,
+                "sessionId", frontSession.getId(),
+                "turnId", context.getTurnId()
+        ));
+        synchronized (frontSession) {
+            frontSession.sendMessage(new TextMessage(payload));
         }
     }
 
@@ -280,6 +322,10 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
             if (last) {
                 String payload = buffer.toString();
                 buffer.setLength(0);
+                if (!context.acceptsMessages()) {
+                    webSocket.request(1);
+                    return CompletableFuture.completedFuture(null);
+                }
                 if (!context.addServerMessage(payload)) {
                     terminate(context, "识别结果已达会话上限"); return CompletableFuture.completedFuture(null);
                 }
@@ -321,6 +367,7 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         private volatile long lastActivity = created;
         private long audioBytesSeen;
         private long messageChars;
+        private final TurnLifecycle turnLifecycle = new TurnLifecycle();
 
         private volatile WebSocket funasrSocket;
         private volatile String wavName;
@@ -351,6 +398,22 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
             audioBytesSeen += bytes.length;
             if (historyId != null) audioBuffer.write(bytes, 0, bytes.length);
             return true;
+        }
+
+        private boolean startTurn(String turnId) {
+            return turnLifecycle.start(turnId);
+        }
+
+        private boolean interruptTurn(String turnId) {
+            return turnLifecycle.interrupt(turnId);
+        }
+
+        private boolean acceptsMessages() {
+            return turnLifecycle.acceptsMessages();
+        }
+
+        private String getTurnId() {
+            return turnLifecycle.turnId();
         }
 
         private synchronized byte[] getAudioBytes() {

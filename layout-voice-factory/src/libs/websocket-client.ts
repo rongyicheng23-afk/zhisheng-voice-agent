@@ -15,6 +15,10 @@ export interface WebSocketConfig {
   chunk_interval: number
   /** 识别模式：online/offline/2pass */
   mode: string
+  /** 当前实时交互轮次，用于拒收已取消轮次的迟到结果 */
+  turnId?: string
+  /** 生命周期事件，例如 turn.interrupt */
+  event?: string
 }
 
 /**
@@ -35,6 +39,16 @@ export interface WebSocketMessage {
 export const REALTIME_CHUNK_SIZE = [5, 10, 5] as const
 export const REALTIME_CHUNK_INTERVAL = 10
 
+function createTurnId(): string {
+  const cryptoApi = (typeof globalThis !== 'undefined' ? globalThis.crypto : undefined) as
+    (Crypto & { randomUUID?: () => string }) | undefined
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, marker => {
+    const value = Math.floor(Math.random() * 16)
+    return (marker === 'x' ? value : (value & 0x3) | 0x8).toString(16)
+  })
+}
+
 /**
  * WebSocket连接方法类
  * 仿照FunASR的wsconnecter.js实现风格
@@ -49,6 +63,7 @@ export function WebSocketConnectMethod(config: {
   let upstreamReady = false
   let timer: ReturnType<typeof setTimeout> | null = null
   let pending: ((result: number) => void) | null = null
+  let activeTurnId: string | null = null
   const msgHandle = config.msgHandle
   const stateHandle = config.stateHandle
 
@@ -137,6 +152,11 @@ export function WebSocketConnectMethod(config: {
 
   // 定义停止连接函数
   const wsStop = function(): void {
+    if (activeTurnId && upstreamReady && speechSocket?.readyState === WebSocket.OPEN) {
+      try {
+        speechSocket.send(JSON.stringify({ event: 'turn.interrupt', turnId: activeTurnId }))
+      } catch (_) { /* The close below is the final cancellation boundary. */ }
+    }
     generation += 1
     upstreamReady = false
     settle(0)
@@ -144,6 +164,7 @@ export function WebSocketConnectMethod(config: {
       speechSocket.close()
       speechSocket = null
     }
+    activeTurnId = null
   }
 
   // 定义发送数据函数
@@ -164,13 +185,15 @@ export function WebSocketConnectMethod(config: {
 
   // WebSocket连接中的消息与状态响应
   function onOpen(e: Event): void {
+    activeTurnId = createTurnId()
     // 发送json
     const request: WebSocketConfig = {
       "chunk_size": [...REALTIME_CHUNK_SIZE],
       "wav_name": "microphone",
       "is_speaking": true,
       "chunk_interval": REALTIME_CHUNK_INTERVAL,
-      "mode": "2pass"
+      "mode": "2pass",
+      "turnId": activeTurnId
     }
     
     speechSocket?.send(JSON.stringify(request))
@@ -178,6 +201,7 @@ export function WebSocketConnectMethod(config: {
   }
 
   function onClose(e: CloseEvent): void {
+    activeTurnId = null
     stateHandle?.(1) // 1: 连接关闭
   }
 

@@ -55,3 +55,9 @@ voiceprint:
   health-path: ${VOICEPRINT_HEALTH_PATH:/}
   connect-timeout-ms: ${VOICEPRINT_CONNECT_TIMEOUT_MS:5000}
   read-timeout-ms: ${VOICEPRINT_READ_TIMEOUT_MS:300000}
+
+realtime:
+  gateway:
+    # Required whenever the Python realtime gateway is enabled. Do not use a
+    # default here: the gateway must not accept browser traffic without it.
+    internal-key: ${REALTIME_GATEWAY_INTERNAL_KEY:}

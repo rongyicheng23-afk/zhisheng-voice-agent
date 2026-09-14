@@ -148,4 +148,7 @@ if __name__ == '__main__':
     print("🎵 合成端点: POST /synthesize")
     print("🔗 健康检查: GET /health")
     
-    app.run(host='127.0.0.1', port=8003, debug=False)
+    # Model services must stay single-process: Flask's debug reloader starts a
+    # second interpreter and would load the multi-GB XTTS model twice.
+    app.run(host=os.environ.get('TTS_BIND_HOST', '127.0.0.1'), port=8003,
+            debug=False, use_reloader=False)
