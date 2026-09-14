@@ -13,6 +13,7 @@ const Login = () => import('./views/Login.vue')
 const Register = () => import('./views/Register.vue')
 const Profile = () => import('./views/Profile.vue')
 const VoicePrintCompare = () => import('./views/VoicePrintCompare.vue')
+const KnowledgeBase = () => import('./views/KnowledgeBase.vue')
 
 const routerHistory = createWebHistory()
 const router = createRouter({
@@ -78,6 +79,11 @@ const router = createRouter({
       path: '/VoicePrintCompare',
       name: 'VoicePrintCompare',
       component: VoicePrintCompare
+    },
+    {
+      path: '/knowledge',
+      name: 'KnowledgeBase',
+      component: KnowledgeBase
     },
 
     {

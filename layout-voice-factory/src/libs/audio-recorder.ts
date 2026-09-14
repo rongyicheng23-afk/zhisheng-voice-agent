@@ -18,6 +18,10 @@ export class AudioRecorder {
   private readonly processorBufferSize = 1024
   /** 是否正在录音 */
   private isRecording = false
+  /** Stops stale microphone permission requests from reviving an old turn. */
+  private generation = 0
+  /** The microphone stream must be stopped explicitly on every turn. */
+  private stream: MediaStream | null = null
   /** 是否已连接WebSocket */
   private isConnected = false
   /** 音频数据发送回调函数 */
@@ -29,6 +33,8 @@ export class AudioRecorder {
    * @param onAudioData 音频数据发送回调函数
    */
   async startRecording(onAudioData: (data: ArrayBuffer) => void): Promise<void> {
+    this.stopRecording()
+    const attempt = ++this.generation
     try {
       this.onAudioDataCallback = onAudioData
       this.isRecording = true
@@ -43,6 +49,11 @@ export class AudioRecorder {
           autoGainControl: true     // 开启自动增益控制，保持音量稳定
         }
       })
+      if (attempt !== this.generation || !this.isRecording) {
+        stream.getTracks().forEach(track => track.stop())
+        return
+      }
+      this.stream = stream
       
       // 创建AudioContext音频处理上下文
       this.audioContext = new AudioContext({ sampleRate: 16000 })
@@ -54,7 +65,7 @@ export class AudioRecorder {
       
       // 音频数据处理函数，采用FunASR示例的分块逻辑
       this.processor.onaudioprocess = (event: AudioProcessingEvent) => {
-        if (this.isRecording && this.isConnected) {
+        if (attempt === this.generation && this.isRecording && this.isConnected) {
           const inputData = event.inputBuffer.getChannelData(0)
           
           // 转换为16位PCM格式
@@ -90,7 +101,8 @@ export class AudioRecorder {
       console.log('开始录音 - 采用FunASR分块方式')
       
     } catch (error) {
-      console.error('录音失败:', error)
+      if (attempt !== this.generation) return
+      this.stopRecording()
       throw new Error('无法访问麦克风，请检查权限设置')
     }
   }
@@ -101,28 +113,33 @@ export class AudioRecorder {
    * @returns 剩余的音频数据（如果有的话）
    */
   stopRecording(): ArrayBuffer | null {
+    this.generation += 1
     this.isRecording = false
+    this.stream?.getTracks().forEach(track => track.stop())
+    this.stream = null
     
     // 断开音频处理节点
     if (this.processor) {
       this.processor.disconnect()
+      this.processor.onaudioprocess = null
+      this.processor = null
     }
     if (this.source) {
       this.source.disconnect()
+      this.source = null
     }
     if (this.audioContext) {
-      this.audioContext.close()
+      void this.audioContext.close().catch(() => undefined)
+      this.audioContext = null
     }
     
     // 返回剩余的音频数据，按照FunASR示例的方式
     let remainingData: ArrayBuffer | null = null
     if (this.sampleBuf.length > 0) {
       remainingData = this.sampleBuf.buffer
-      console.log('剩余音频数据，大小:', this.sampleBuf.buffer.byteLength, '字节')
-      // 注意：这里不清空sampleBuf，让调用方处理
     }
-    
-    console.log('录音已停止 - FunASR方式')
+    this.sampleBuf = new Int16Array()
+    this.onAudioDataCallback = undefined
     return remainingData
   }
 
@@ -150,4 +167,72 @@ export class AudioRecorder {
       this.stopRecording()
     }
   }
-} 
+}
+
+/**
+ * Lightweight microphone listener used while the assistant is speaking.
+ * It never sends audio to ASR; it only detects that the user has started
+ * speaking, so the active response can be interrupted safely.
+ */
+export class VoiceActivityMonitor {
+  private audioContext: AudioContext | null = null
+  private processor: ScriptProcessorNode | null = null
+  private source: MediaStreamAudioSourceNode | null = null
+  private stream: MediaStream | null = null
+  private generation = 0
+
+  async start(onLevel: (rms: number) => void): Promise<void> {
+    this.stop()
+    const attempt = ++this.generation
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    })
+    if (attempt !== this.generation) {
+      stream.getTracks().forEach(track => track.stop())
+      return
+    }
+
+    this.stream = stream
+    this.audioContext = new AudioContext({ sampleRate: 16000 })
+    await this.audioContext.resume()
+    this.source = this.audioContext.createMediaStreamSource(stream)
+    this.processor = this.audioContext.createScriptProcessor(1024, 1, 1)
+    this.processor.onaudioprocess = event => {
+      if (attempt !== this.generation) return
+      const input = event.inputBuffer.getChannelData(0)
+      if (!input.length) return
+      let squareSum = 0
+      for (let index = 0; index < input.length; index++) {
+        squareSum += input[index] * input[index]
+      }
+      onLevel(Math.sqrt(squareSum / input.length))
+    }
+    this.source.connect(this.processor)
+    this.processor.connect(this.audioContext.destination)
+  }
+
+  stop(): void {
+    this.generation += 1
+    this.stream?.getTracks().forEach(track => track.stop())
+    this.stream = null
+    if (this.processor) {
+      this.processor.disconnect()
+      this.processor.onaudioprocess = null
+      this.processor = null
+    }
+    if (this.source) {
+      this.source.disconnect()
+      this.source = null
+    }
+    if (this.audioContext) {
+      void this.audioContext.close().catch(() => undefined)
+      this.audioContext = null
+    }
+  }
+}

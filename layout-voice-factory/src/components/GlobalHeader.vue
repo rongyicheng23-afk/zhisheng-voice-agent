@@ -15,6 +15,7 @@
         <router-link to="/TextToVoice" class="vf-menu-item" active-class="is-active">文字转语音</router-link>
         <router-link to="/VoicePrintCompare" class="vf-menu-item" active-class="is-active">声纹对比</router-link>
         <router-link to="/MeetingNotes" class="vf-menu-item" active-class="is-active">智能纪要</router-link>
+        <router-link to="/knowledge" class="vf-menu-item" active-class="is-active">知识库</router-link>
       </div>
 
       <div class="vf-actions">

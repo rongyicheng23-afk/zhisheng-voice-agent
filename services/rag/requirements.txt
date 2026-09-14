@@ -1,0 +1,5 @@
+fastapi==0.141.1
+uvicorn==0.52.4
+# Keep NumPy aligned with the existing local XTTS environment.
+numpy==1.22.0
+sentence-transformers==2.7.0

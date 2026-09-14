@@ -20,6 +20,7 @@ import com.wc.mapper.UserSpeakerProfileMapper;
 import com.wc.meeting.model.MeetingCorrectionRequest;
 import com.wc.meeting.model.MeetingExportTemplate;
 import com.wc.meeting.model.MeetingSegmentCorrectionItem;
+import com.wc.meeting.diarization.SpeakerDiarizationAdapter;
 import com.wc.service.UserAudioHistoryService;
 import com.wc.service.UserInfoService;
 import com.wc.service.UserMeetingNoteService;
@@ -121,6 +122,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
     private FunasrService funasrService;
     @Resource
     private VoiceprintService voiceprintService;
+    @Resource
+    private SpeakerDiarizationAdapter speakerDiarizationAdapter;
     @Resource
     private ObjectMapper objectMapper;
     @Resource
@@ -442,6 +445,35 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         UserMeetingNoteVO view = toView(note, true);
         saveRevisionSnapshot(note, view.getSpeakerBlocks(), view.getSpeakerSegments(), "MANUAL");
         return view;
+    }
+
+    @Override
+    public Map<String, Object> getDiarizationReport(Integer meetingId, Integer userId) {
+        UserMeetingNote note = getMeetingById(meetingId, userId);
+        List<UserMeetingSegment> segments = listSegmentEntitiesByMeetingId(note.getId());
+        Map<String, Integer> clusterSizes = new LinkedHashMap<>();
+        int profileMatched = 0;
+        for (UserMeetingSegment segment : segments) {
+            String label = normalizeSpeakerName(segment.getSpeakerName());
+            if (!StringUtils.hasText(label)) label = "未知发言人";
+            clusterSizes.put(label, clusterSizes.getOrDefault(label, 0) + 1);
+            if (segment.getSpeakerProfileId() != null) profileMatched++;
+        }
+        long manualRevisions = userMeetingRevisionMapper.selectCount(new LambdaQueryWrapper<UserMeetingRevision>()
+                .eq(UserMeetingRevision::getMeetingId, note.getId())
+                .eq(UserMeetingRevision::getRevisionType, "MANUAL"));
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("adapter", "cam++-voiceprint-anonymous-clustering");
+        report.put("anonymousOnly", true);
+        report.put("totalSegments", segments.size());
+        report.put("clusterCount", clusterSizes.size());
+        report.put("clusters", clusterSizes);
+        report.put("profileMatchedSegments", profileMatched);
+        report.put("manualRevisionCount", manualRevisions);
+        report.put("derStatus", "NOT_EVALUATED");
+        report.put("derMessage", "DER 需要带人工真实说话人标注的参照集；当前会议只提供匿名分组，不虚构评估结果。");
+        report.put("manualEvidence", "每次人工校正都会生成 MANUAL 版本快照，可在版本对比中核对修改前后结果。");
+        return report;
     }
 
     @Override
@@ -1608,7 +1640,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             }
 
             List<UserMeetingSegmentVO> segments = new ArrayList<>();
-            List<SpeakerCluster> anonymousClusters = new ArrayList<>();
+            SpeakerDiarizationAdapter.Session anonymousSession = speakerDiarizationAdapter.openSession();
             int segmentIndex = 1;
             for (TimeRange range : ranges) {
                 Path segmentPath = tempDir.resolve("segment_" + segmentIndex + ".wav");
@@ -1635,7 +1667,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
 
                 SpeakerMatch bestMatch = matchSpeaker(segmentBytes, profiles, sampleAudioBytes);
                 if (autoDiarization && bestMatch.profileId == null) {
-                    bestMatch = assignAnonymousSpeaker(segmentBytes, anonymousClusters);
+                    SpeakerDiarizationAdapter.Assignment assignment = anonymousSession.assign(segmentBytes);
+                    bestMatch = new SpeakerMatch(null, assignment.getClusterLabel(), assignment.getConfidence());
                 }
                 UserMeetingSegment segment = new UserMeetingSegment();
                 segment.setMeetingId(note.getId());

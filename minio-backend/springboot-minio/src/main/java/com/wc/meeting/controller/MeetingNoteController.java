@@ -156,6 +156,17 @@ public class MeetingNoteController {
         }
     }
 
+    @GetMapping("/history/{meetingId}/diarization-report")
+    public R diarizationReport(@PathVariable("meetingId") Integer meetingId) {
+        try {
+            return R.OK(userMeetingNoteService.getDiarizationReport(meetingId, currentUserId()));
+        } catch (IllegalArgumentException ex) {
+            return new R(400, ex.getMessage(), null);
+        } catch (Exception ex) {
+            return new R(500, ex.getMessage(), null);
+        }
+    }
+
     @GetMapping("/history/{meetingId}/audio")
     public void downloadRawAudio(@PathVariable("meetingId") Integer meetingId, HttpServletResponse response) throws Exception {
         try {
