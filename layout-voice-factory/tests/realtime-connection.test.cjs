@@ -46,6 +46,7 @@ test('JWT only goes in HTTP header; actual open resolves connection', async () =
   await tick()
   assert.equal(f.requests[0].options.headers.Authorization, 'Bearer LONG_LOGIN_JWT')
   assert.equal(new URL(f.sockets[0].url).searchParams.get('token'), null)
+  assert.equal(new URL(f.sockets[0].url).searchParams.get('save_audio'), null)
   assert.equal(new URL(f.sockets[0].url).searchParams.get('ticket'), 'a'.repeat(43))
   f.sockets[0].open()
   assert.equal(await connection, 1)
@@ -60,6 +61,15 @@ test('stop while ticket request is pending prevents socket creation', async () =
   release({ ok: true, json: async () => ({ code: 200, data: { ticket: 'a'.repeat(43), purpose: 'funasr' } }) })
   assert.equal(await connection, 0)
   assert.equal(f.sockets.length, 0)
+})
+test('recording is saved only when explicitly requested', async () => {
+  const f = setup()
+  const connection = f.client.wsStart({ saveAudio: true })
+  await tick()
+  assert.equal(new URL(f.sockets[0].url).searchParams.get('save_audio'), 'true')
+  f.sockets[0].open()
+  assert.equal(await connection, 1)
+  f.client.wsStop()
 })
 test('old messages and close callback cannot affect a new connection', async () => {
   const f = setup()

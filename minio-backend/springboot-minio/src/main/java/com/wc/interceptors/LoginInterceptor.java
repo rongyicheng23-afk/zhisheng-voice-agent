@@ -12,6 +12,8 @@ import java.util.Map;
 
 @Component
 public class LoginInterceptor implements HandlerInterceptor {
+    private final com.wc.service.UserInfoService users;
+    public LoginInterceptor(com.wc.service.UserInfoService users) { this.users = users; }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -22,6 +24,11 @@ public class LoginInterceptor implements HandlerInterceptor {
         String token = request.getHeader("Authorization");
         try {
             Map<String, Object> claims = JwtUtil.parseToken(token);
+            Integer userId = com.wc.utils.AuthContextUtil.parseUserIdFromToken(token);
+            if (userId <= 0 || users.getUserById(userId) == null) {
+                response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                return false;
+            }
             ThreadLocalUtil.set(claims);
             return true;
         } catch (Exception e) {

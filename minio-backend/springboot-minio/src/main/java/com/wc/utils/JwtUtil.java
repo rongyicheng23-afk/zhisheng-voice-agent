@@ -7,7 +7,19 @@ import java.util.Date;
 import java.util.Map;
 
 public class JwtUtil {
-    private static final String KEY = "wc";
+    private static final String KEY = resolveKey(System.getenv("JWT_SECRET"));
+
+    static String resolveKey(String configured) {
+        if (configured != null && !configured.isBlank()) {
+            if (configured.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < 32) {
+                throw new IllegalArgumentException("JWT_SECRET must contain at least 32 UTF-8 bytes");
+            }
+            return configured;
+        }
+        byte[] bytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getEncoder().encodeToString(bytes);
+    }
 
     private JwtUtil() {
     }

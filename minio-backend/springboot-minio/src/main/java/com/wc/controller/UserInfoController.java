@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 
 import java.util.List;
 
-@CrossOrigin(originPatterns = "*", allowCredentials = "true")
 @RestController
 public class UserInfoController {
 
@@ -35,12 +34,14 @@ public class UserInfoController {
 
     @GetMapping(value = "/api/users")
     public R users(){
-        List<UserInfo> userInfoList = userInfoService.getUserList();
+        UserInfo current = userInfoService.getUserById(com.wc.utils.AuthContextUtil.currentUserId());
+        List<UserInfo> userInfoList = current == null ? List.of() : List.of(current);
         return R.OK(userInfoList);
     }
 
     @PostMapping(value = "/api/user/image")
     public R image(MultipartFile file,@RequestParam(value = "id")Integer id) throws Exception {
+        requireOwner(id);
         String suffix = file.getOriginalFilename().substring(file.getOriginalFilename().indexOf("."));//取文件后缀
         String object = "/api/user/image/"+id+suffix;
         ObjectWriteResponse objectWriteResponse = minioClient.putObject(PutObjectArgs.builder()
@@ -58,6 +59,7 @@ public class UserInfoController {
 
     @PostMapping(value = "/api/user/contract")
     public R contract(MultipartFile file,@RequestParam(value = "id")Integer id) throws Exception {
+        requireOwner(id);
         String suffix = file.getOriginalFilename().substring(file.getOriginalFilename().indexOf("."));//取文件后缀
         String object = "/api/user/contract/"+id+suffix;
         ObjectWriteResponse objectWriteResponse = minioClient.putObject(PutObjectArgs.builder()
@@ -73,18 +75,29 @@ public class UserInfoController {
 
     @GetMapping(value = "/api/user/{id}")
     public R user(@PathVariable(value = "id") Integer id){
+        requireOwner(id);
         UserInfo userInfo = userInfoService.getUserById(id);
         return R.OK(userInfo);
     }
 
     @PutMapping(value = "/api/user")
     public R updateUser(UserInfo userInfo){
-        boolean update = userInfoService.updateById(userInfo);
+        requireOwner(userInfo.getId());
+        UserInfo permitted = new UserInfo();
+        permitted.setId(userInfo.getId());
+        permitted.setNick(userInfo.getNick());
+        permitted.setSex(userInfo.getSex());
+        permitted.setPhone(userInfo.getPhone());
+        permitted.setEmail(userInfo.getEmail());
+        permitted.setAddress(userInfo.getAddress());
+        permitted.setUpdateTime(new java.util.Date());
+        boolean update = userInfoService.updateById(permitted);
         return update ? R.OK():R.FAIL();
     }
 
     @GetMapping(value = "/api/download/{id}")
     public void download(@PathVariable(value = "id")Integer id, HttpServletResponse response) throws Exception {
+        requireOwner(id);
 
         UserInfo user = userInfoService.getUserById(id);
 
@@ -95,14 +108,23 @@ public class UserInfoController {
         response.setCharacterEncoding("utf-8");
         response.setHeader("Content-disposition","attachment;filename="+ URLEncoder.encode(fileName, StandardCharsets.UTF_8));
 
-        GetObjectResponse object = minioClient.getObject(GetObjectArgs.builder()
+        try (GetObjectResponse object = minioClient.getObject(GetObjectArgs.builder()
                 .bucket(bucket)
                 .object(fileName)
-                .build());
+                .build())) {
         object.transferTo(response.getOutputStream());//之前是获得输出流下载到本地磁盘，这里是response中
+        }
     }
     @DeleteMapping(value = "/api/user/{id}")
     public R deleteUser(@PathVariable(value = "id")Integer id) throws Exception {
+        requireOwner(id);
         return userInfoService.deleteUserById(id) ? R.OK():R.FAIL();
+    }
+
+    private void requireOwner(Integer id) {
+        if (id == null || !id.equals(com.wc.utils.AuthContextUtil.currentUserId())
+                || userInfoService.getUserById(id) == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "无权访问该用户资源");
+        }
     }
 }

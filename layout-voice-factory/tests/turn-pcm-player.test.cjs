@@ -40,6 +40,14 @@ test('interrupt flushes queued speech and rejects late old audio', () => {
   assert.ok(f.render().every(x => x === 0))
   assert.equal(f.player.size, 0)
 })
+test('reports freed buffer space even without receiving new audio', () => {
+  const f = fixture()
+  f.send(f.chunk({ pcm: new Int16Array(4800).buffer }))
+  for (let i = 0; i < 20; i++) f.render()
+  const reports = f.messages.filter(e => e.event === 'playback.buffer')
+  assert.ok(reports.length >= 2)
+  assert.ok(reports.at(-1).bufferedFrames < reports[0].bufferedFrames)
+})
 test('duplicate and foreign turn chunks do not enter the buffer', () => {
   const f = fixture()
   f.send(f.chunk())

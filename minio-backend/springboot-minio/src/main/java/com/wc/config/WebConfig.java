@@ -10,15 +10,18 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class WebConfig implements WebMvcConfigurer {
 
     private final LoginInterceptor loginInterceptor;
+    private final com.wc.realtime.RealtimeOrigins origins;
 
-    public WebConfig(LoginInterceptor loginInterceptor) {
+    public WebConfig(LoginInterceptor loginInterceptor, com.wc.realtime.RealtimeOrigins origins) {
         this.loginInterceptor = loginInterceptor;
+        this.origins = origins;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(loginInterceptor)
                 .addPathPatterns("/user/**")
+                .addPathPatterns("/api/user", "/api/user/**", "/api/users", "/api/download/**")
                 .addPathPatterns("/api/funasr/**")
                 .addPathPatterns("/api/funasr/history", "/api/funasr/history/**")
                 .addPathPatterns("/api/funasr/minio/**")
@@ -40,7 +43,7 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOriginPatterns("*")
+                .allowedOrigins(origins.values())
                 .allowedMethods("*")
                 .allowedHeaders("*");
     }

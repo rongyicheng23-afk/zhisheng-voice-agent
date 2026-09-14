@@ -67,7 +67,7 @@ export function WebSocketConnectMethod(config: {
   }
 
   // 定义开始连接函数
-  const wsStart = async function(): Promise<number> {
+  const wsStart = async function(options: { saveAudio?: boolean } = {}): Promise<number> {
     wsStop()
     const attempt = generation
     const token = resolveStoredToken()
@@ -92,6 +92,7 @@ export function WebSocketConnectMethod(config: {
         throw new Error('Invalid ticket')
       }
       target.searchParams.set('ticket', ticket)
+      if (options.saveAudio === true) target.searchParams.set('save_audio', 'true')
       return await new Promise<number>(resolve => {
         pending = resolve
         const socket = new WebSocket(target.toString())

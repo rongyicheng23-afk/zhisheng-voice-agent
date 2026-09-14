@@ -225,7 +225,7 @@ async def ws_serve(websocket, path):
                             try:
                                 await async_asr_online(websocket, audio_in) # 调用在线ASR处理函数
                             except:
-                                print(f"error in asr streaming, {websocket.status_dict_asr_online}")
+                                print("error in asr streaming (request contents omitted)")
                         frames_asr_online = [] # 清空在线ASR帧列表
                     if speech_start:
                         frames_asr.append(message) # 将音频帧添加到离线ASR帧列表
@@ -265,13 +265,13 @@ async def ws_serve(websocket, path):
                         frames = frames[-20:] # 如果还在说话 只保留最后20个音频帧
 
     except websockets.ConnectionClosed:
-        print("ConnectionClosed...", websocket_users, flush=True)
+        print("ConnectionClosed", flush=True)
         await ws_reset(websocket)
         websocket_users.remove(websocket)
     except websockets.InvalidState:
         print("InvalidState...")
     except Exception as e:
-        print("Exception:", e)
+        print("WebSocket processing failed:", type(e).__name__)
 
 # 语音活动检测函数
 async def async_vad(websocket, audio_in):

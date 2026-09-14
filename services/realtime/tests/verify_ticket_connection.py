@@ -1,4 +1,4 @@
-"""Opt-in local integration check. Creates one sample transcription history.
+"""Opt-in local integration check. Saves sample history only with --save-audio.
 Requires the local stack on 18080/10095; never enables a microphone.
 """
 import asyncio
@@ -14,7 +14,7 @@ BASE = 'http://127.0.0.1:18080'
 ORIGIN = 'http://127.0.0.1:8081'
 
 
-async def main(chunk_interval=10):
+async def main(chunk_interval=10, save_audio=False):
     response = requests.post(BASE + '/api/realtime/ticket', headers={'Origin': ORIGIN}, timeout=5)
     assert response.status_code == 401, 'Ticket issuance must require login'
     auth = requests.post(BASE + '/user/login', data={'username': 'admin', 'password': '123456'}, timeout=5).json()
@@ -26,6 +26,8 @@ async def main(chunk_interval=10):
     assert response.status_code == 200 and response.headers.get('Cache-Control') == 'no-store'
     ticket = response.json()['data']['ticket']
     uri = 'ws://127.0.0.1:18080/ws/funasr?ticket=' + ticket
+    if save_audio:
+        uri += '&save_audio=true'
 
     async def rejected(url, origin, status):
         try:
@@ -70,4 +72,6 @@ async def main(chunk_interval=10):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--chunk-interval', type=int, default=10)
-    asyncio.run(main(parser.parse_args().chunk_interval))
+    parser.add_argument('--save-audio', action='store_true')
+    args = parser.parse_args()
+    asyncio.run(main(args.chunk_interval, args.save_audio))

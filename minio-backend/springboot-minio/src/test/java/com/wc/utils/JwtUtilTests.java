@@ -7,6 +7,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 class JwtUtilTests {
+    @Test void rejectsOldPublicSigningKey() {
+        String forged = com.auth0.jwt.JWT.create().withClaim("claims", Map.of("id", 1))
+                .sign(com.auth0.jwt.algorithms.Algorithm.HMAC256("wc"));
+        Assertions.assertThrows(Exception.class, () -> JwtUtil.parseToken(forged));
+    }
+    @Test void requiresStrongConfiguredKeyAndRandomizesFallback() {
+        Assertions.assertThrows(IllegalArgumentException.class, () -> JwtUtil.resolveKey("short"));
+        Assertions.assertNotEquals(JwtUtil.resolveKey(null), JwtUtil.resolveKey(null));
+        Assertions.assertEquals("x".repeat(32), JwtUtil.resolveKey("x".repeat(32)));
+    }
 
     @Test
     void parseUserIdFromTokenAcceptsRawToken() {

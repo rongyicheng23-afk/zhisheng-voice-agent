@@ -33,6 +33,7 @@
         </div>
 
         <div class="voice-recording-area">
+          <el-checkbox v-model="saveAudio" :disabled="isRecording || isConnected">保存本次录音和转写到我的历史（默认不保存）</el-checkbox>
           <div class="recording-content" :class="{ 'recording-active': isRecording }">
             <div class="recording-icon-wrapper">
               <div class="microphone-circle" :class="{ 'recording': isRecording }">
@@ -151,6 +152,7 @@ export default defineComponent({
     const draftTranscriptionText = ref('')
     const recordingStatusText = ref('点击开始录音，系统将实时转换您的语音为文字')
     const isConnected = ref(false)
+    const saveAudio = ref(false)
     let recordingAttempt = 0
     let connectionOnly = false
     let closeTimer: ReturnType<typeof setTimeout> | null = null
@@ -574,7 +576,7 @@ export default defineComponent({
         audioRecorder.setConnected(false)
         draftTranscriptionText.value = ''
         recordingStatusText.value = '正在连接WebSocket...'
-        const result = await wsConnectMethod.wsStart()
+        const result = await wsConnectMethod.wsStart({ saveAudio: saveAudio.value })
         if (attempt !== recordingAttempt) return
         if (result === 1) {
         } else {
@@ -647,6 +649,7 @@ export default defineComponent({
       quickStartTips,
       recordingStatusText,
       isConnected,
+      saveAudio,
       toggleRecording,
       copyText,
       clearText,

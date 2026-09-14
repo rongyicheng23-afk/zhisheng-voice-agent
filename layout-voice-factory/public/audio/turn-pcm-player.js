@@ -16,6 +16,7 @@ class TurnPcmPlayer extends AudioWorkletProcessor {
     this.started = false
     this.ended = false
     this.underflow = false
+    this.reportFrames = 0
     this.port.onmessage = ({ data }) => this.receive(data)
   }
 
@@ -24,6 +25,7 @@ class TurnPcmPlayer extends AudioWorkletProcessor {
     this.readIndex = this.writeIndex = this.size = 0
     this.segmentSequence = this.chunkSequence = this.sequence = 0
     this.started = this.ended = this.underflow = false
+    this.reportFrames = 0
   }
 
   notify(event, extra = {}) {
@@ -103,6 +105,11 @@ class TurnPcmPlayer extends AudioWorkletProcessor {
       this.readIndex = (this.readIndex + 1) % this.samples.length
     }
     this.size -= count
+    this.reportFrames += output.length
+    if (this.reportFrames >= sampleRate / 10) {
+      this.reportFrames = 0
+      this.notify('playback.buffer', { bufferedFrames: this.size, capacityFrames: this.samples.length })
+    }
     if (this.ended && !this.size) {
       this.notify('playback.completed')
       this.reset(null)

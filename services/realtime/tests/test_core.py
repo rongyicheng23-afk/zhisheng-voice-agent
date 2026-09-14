@@ -141,6 +141,33 @@ class TurnTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.events[-1]['code'], 'TURN_PROCESSING_FAILED')
         self.assertFalse(any(e['event'] == 'audio.chunk' for e in self.events))
 
+    async def test_empty_model_output_fails_without_waiting_for_playback(self):
+        class EmptyLlm:
+            async def stream(self, prompt):
+                if False: yield ''
+        self.session.llm = EmptyLlm()
+        await self.session.start('test')
+        await self.wait_event('turn.failed')
+        self.assertFalse(any(e['event'] == 'audio.completed' for e in self.events))
+
+    async def test_rate_changes_are_rejected_before_bad_chunk_sent(self):
+        class ChangedRate(TtsFixture):
+            async def stream(self, text):
+                yield AudioChunk(b'\0\0', sample_rate=24000)
+                yield AudioChunk(b'\0\0', sample_rate=16000)
+        self.session.tts = ChangedRate()
+        await self.session.start('test')
+        await self.wait_event('turn.failed')
+        self.assertEqual(len([e for e in self.events if e['event'] == 'audio.chunk']), 1)
+
+    async def test_total_model_text_is_bounded(self):
+        class LongLlm:
+            async def stream(self, prompt):
+                yield 'x' * 32001
+        self.session.llm = LongLlm()
+        await self.session.start('test')
+        await self.wait_event('turn.failed')
+
     async def test_interrupt_while_model_waits(self):
         closed = asyncio.Event()
         class WaitingLlm:

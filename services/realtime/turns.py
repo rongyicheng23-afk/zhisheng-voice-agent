@@ -112,6 +112,7 @@ class RealtimeSession:
             iterator = self.llm.stream(prompt).__aiter__()
             next_token = None
             first = True
+            generated_chars = 0
             try:
                 while True:
                     if next_token is None:
@@ -129,6 +130,9 @@ class RealtimeSession:
                     next_token = None
                     if not isinstance(delta, str) or len(delta) > 32768:
                         raise ValueError('invalid model delta')
+                    generated_chars += len(delta)
+                    if generated_chars > 32000:
+                        raise ValueError('turn text limit exceeded')
                     if first and delta:
                         await self._emit(turn, 'llm.first_token')
                         first = False
@@ -151,6 +155,7 @@ class RealtimeSession:
 
         async def consume():
             segment_sequence = 0
+            sample_rate = None
             while True:
                 segment = await queue.get()
                 if segment is None:
@@ -163,9 +168,13 @@ class RealtimeSession:
                 try:
                     async for chunk in stream:
                         if (not isinstance(chunk, AudioChunk) or chunk.channels != 1
+                                or not isinstance(chunk.pcm, bytes)
                                 or chunk.sample_rate not in (16000, 22050, 24000, 44100, 48000)
                                 or not chunk.pcm or len(chunk.pcm) % 2 or len(chunk.pcm) > 262144):
                             raise ValueError('expected bounded mono PCM16 audio')
+                        if sample_rate is not None and sample_rate != chunk.sample_rate:
+                            raise ValueError('sample rate changed within turn')
+                        sample_rate = chunk.sample_rate
                         chunk_sequence += 1
                         if chunk_sequence == 1:
                             await self._emit(turn, 'tts.first_audio', segmentSequence=segment_sequence,
@@ -182,6 +191,8 @@ class RealtimeSession:
                     raise ValueError('TTS returned no audio')
                 await self._emit(turn, 'tts.segment_completed', segmentSequence=segment_sequence,
                                  synthesisMode=self.tts.synthesis_mode)
+            if not segment_sequence:
+                raise ValueError('model returned no text')
             turn['audio_done'] = True
             await self._emit(turn, 'audio.completed')
 

@@ -114,6 +114,7 @@ public class UserInfo implements Serializable {
         this.nick = nick;
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty(access = com.fasterxml.jackson.annotation.JsonProperty.Access.WRITE_ONLY)
     public String getPassword() {
         return password;
     }
