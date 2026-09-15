@@ -88,6 +88,9 @@
           </div>
         </div>
 
+        <voice-reply-panel :prompt="replyTranscript || finalTranscriptionText" :completion="replyCompletion"
+          :recording="isRecording" :recognizing="isConnected" />
+
         <div class="transcription-area" v-if="transcriptionText">
           <div class="result-header">
             <div>
@@ -130,6 +133,7 @@ import { AudioRecorder } from '@/libs/audio-recorder'
 import FlowBackgroundPanel from '@/components/FlowBackgroundPanel.vue'
 import QuickStartPanel from '@/components/QuickStartPanel.vue'
 import store from '@/store'
+import VoiceReplyPanel from '@/components/VoiceReplyPanel.vue'
 
 /**
  * 实时语音识别组件
@@ -138,6 +142,7 @@ import store from '@/store'
 export default defineComponent({
   name: 'RealtimeVoice',
   components: {
+    VoiceReplyPanel,
     FlowBackgroundPanel,
     QuickStartPanel,
     Microphone,
@@ -149,6 +154,8 @@ export default defineComponent({
     const router = useRouter()
     const isRecording = ref(false)
     const finalTranscriptionText = ref('')
+    const replyTranscript = ref('')
+    const replyCompletion = ref(0)
     const draftTranscriptionText = ref('')
     const recordingStatusText = ref('点击开始录音，系统将实时转换您的语音为文字')
     const isConnected = ref(false)
@@ -371,6 +378,7 @@ export default defineComponent({
           }
 
           if (asrmodel.includes('offline')) {
+            replyTranscript.value = mergeCommittedText(replyTranscript.value, cleanText)
             draftTranscriptionText.value = ''
             finalTranscriptionText.value = mergeCommittedText(finalTranscriptionText.value, cleanText)
             recordingStatusText.value = '已收到稳定识别结果'
@@ -384,6 +392,7 @@ export default defineComponent({
           }
 
           finalTranscriptionText.value = mergeCommittedText(finalTranscriptionText.value, cleanText)
+          replyTranscript.value = mergeCommittedText(replyTranscript.value, cleanText)
         } catch (error) {
           console.error('处理消息失败:', error)
         }
@@ -524,6 +533,7 @@ export default defineComponent({
       isConnected.value = false
       audioRecorder.setConnected(false)
       recordingStatusText.value = status
+      if (status === '识别完成' && replyTranscript.value.trim()) replyCompletion.value += 1
       resetWaveform()
     }
 
@@ -569,6 +579,7 @@ export default defineComponent({
 
       isRecording.value = !isRecording.value
       if (isRecording.value) {
+        replyTranscript.value = ''
         clearCloseTimer()
         const attempt = ++recordingAttempt
         connectionOnly = false
@@ -642,6 +653,9 @@ export default defineComponent({
     })
 
     return {
+      finalTranscriptionText,
+      replyTranscript,
+      replyCompletion,
       isRecording,
       transcriptionText,
       waveformBars,

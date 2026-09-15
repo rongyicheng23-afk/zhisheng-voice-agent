@@ -244,6 +244,13 @@ async def consume_ticket(ticket: str, origin: str, settings: GatewaySettings) ->
 settings = GatewaySettings.from_environment()
 app = FastAPI(title="Zhisheng Realtime Gateway", version="0.1.0")
 
+try:
+    from .voice import install_voice_route
+except ImportError:
+    from voice import install_voice_route
+
+install_voice_route(app, settings, consume_ticket, DeepSeekLlmAdapter)
+
 
 @app.get("/realtime/health")
 async def health() -> JSONResponse:
@@ -255,6 +262,10 @@ async def health() -> JSONResponse:
         "llmAdapter": "deepseek" if settings.deepseek_api_key else "not-configured",
         "llmModel": settings.deepseek_model if settings.deepseek_api_key else None,
         "ttsAdapter": "not-configured",
+        "voicePath": "/realtime/voice",
+        "voiceSynthesisMode": "segmented",
+        "voiceConfigured": bool(settings.deepseek_api_key and os.path.isfile(os.getenv("REALTIME_TTS_REFERENCE", ""))),
+        "voiceInferenceCancellation": False,
     })
 
 

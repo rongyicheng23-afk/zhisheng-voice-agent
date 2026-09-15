@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import uuid
 
-from .chunking import SemanticChunker
+try:
+    from .chunking import SemanticChunker
+except ImportError:
+    from chunking import SemanticChunker
 
 
 @dataclass(frozen=True)
