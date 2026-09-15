@@ -365,6 +365,15 @@ export default defineComponent({
       msgHandle: (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data)
+          if (data.event === 'asr.failed') {
+            ++recordingAttempt
+            audioRecorder.stopRecording()
+            isRecording.value = false
+            replyTranscript.value = ''
+            draftTranscriptionText.value = ''
+            finishPendingRecording('识别失败，请重新录音；本次不会自动回答')
+            return
+          }
           if (data.event === 'asr.completed') {
             if (closeTimer !== null) finishPendingRecording('识别完成')
             return
@@ -611,6 +620,7 @@ export default defineComponent({
     const clearText = () => {
       finalTranscriptionText.value = ''
       draftTranscriptionText.value = ''
+      replyTranscript.value = ''
       ElMessage.success('文本已清空')
     }
 

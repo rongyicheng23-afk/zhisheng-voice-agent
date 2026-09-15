@@ -171,6 +171,7 @@ async def ws_serve(websocket, path):
     speech_end_i = -1 # 初始化语音结束索引
     websocket.wav_name = "microphone" # 初始化音频文件名
     websocket.mode = "2pass" # 初始化模式
+    websocket.is_speaking = True
     print("new user connected", flush=True) # 打印新用户连接信息 flush=True表示立即输出到控制台
 
     # 处理WebSocket请求
@@ -224,16 +225,18 @@ async def ws_serve(websocket, path):
                             audio_in = b"".join(frames_asr_online) # 将所有的音频帧连接成一个完整的字节串
                             try:
                                 await async_asr_online(websocket, audio_in) # 调用在线ASR处理函数
-                            except:
+                            except Exception:
                                 print("error in asr streaming (request contents omitted)")
+                                raise
                         frames_asr_online = [] # 清空在线ASR帧列表
                     if speech_start:
                         frames_asr.append(message) # 将音频帧添加到离线ASR帧列表
                     # vad online
                     try:
                         speech_start_i, speech_end_i = await async_vad(websocket, message) # 调用语音活动检测函数
-                    except:
+                    except Exception:
                         print("error in vad")
+                        raise
                     if speech_start_i != -1:
                         speech_start = True
                         # 计算音频帧的偏移量 vad检测到语音开始的时间索引与当前音频帧的开始时间索引的差值
@@ -248,8 +251,12 @@ async def ws_serve(websocket, path):
                         audio_in = b"".join(frames_asr)
                         try:
                             await async_asr(websocket, audio_in)
-                        except:
+                        except Exception:
                             print("error in asr offline")
+                            raise
+                    elif websocket.mode == "online" and not websocket.is_speaking:
+                        # Flush the final partial chunk before acknowledging stop.
+                        await async_asr_online(websocket, b"".join(frames_asr_online))
                     frames_asr = []
                     speech_start = False
                     frames_asr_online = []
@@ -261,17 +268,25 @@ async def ws_serve(websocket, path):
                         # All results for this stop request have been sent. The
                         # browser must drain to this marker, not a fixed delay.
                         await websocket.send(json.dumps({"event": "asr.completed"}))
+                        # One recording per connection; duplicate stop messages
+                        # must not produce another completion/automatic reply.
+                        break
                     else:
                         frames = frames[-20:] # 如果还在说话 只保留最后20个音频帧
 
     except websockets.ConnectionClosed:
         print("ConnectionClosed", flush=True)
         await ws_reset(websocket)
-        websocket_users.remove(websocket)
     except websockets.InvalidState:
         print("InvalidState...")
     except Exception as e:
         print("WebSocket processing failed:", type(e).__name__)
+        try:
+            await websocket.send(json.dumps({"event": "asr.failed", "code": "ASR_PROCESSING_FAILED"}))
+        except Exception:
+            pass  # The peer may already be disconnected.
+    finally:
+        websocket_users.discard(websocket)
 
 # 语音活动检测函数
 async def async_vad(websocket, audio_in):
