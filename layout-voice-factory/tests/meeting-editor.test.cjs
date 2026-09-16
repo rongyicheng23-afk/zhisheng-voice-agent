@@ -44,10 +44,63 @@ function setup({ failSave = false, failHistory = false, conflict = false } = {})
   return { page, requests, messages }
 }
 
+test('same-named profile candidates and unknown segments stay separate during editing', () => {
+  const { page } = setup()
+  page.detail.speakerSegments = [
+    { id: 1, speakerName: '王', speakerProfileId: 10 },
+    { id: 2, speakerName: '王', speakerProfileId: 11 },
+    { id: 3, speakerName: '未知发言人' }, { id: 4, speakerName: '未知发言人' }
+  ]
+  page.enterEditMode()
+  assert.equal(page.speakerGroups.value.length, 4)
+  page.bulkSource.value = 'profile:10'
+  page.bulkTarget.value = '会议内甲'
+  page.applyBulkSpeaker()
+  assert.equal(page.correctionForm.speakerSegments[0].speakerName, '会议内甲')
+  assert.equal(page.correctionForm.speakerSegments[0].speakerProfileId, undefined)
+  assert.equal(page.correctionForm.speakerSegments[1].speakerName, '王')
+  page.speakerFilter.value = 'unknown:3'
+  assert.equal(page.visibleSegments.value.length, 1)
+  assert.equal(page.visibleSegments.value[0].id, 3)
+})
+
+test('manual single rename immediately detaches the draft from profile grouping', () => {
+  const { page } = setup()
+  page.detail.speakerSegments[0].speakerProfileId = 10
+  page.detail.speakerSegments[1].speakerProfileId = 10
+  page.enterEditMode()
+  page.correctionForm.speakerSegments[0].speakerName = '单独一人'
+  assert.equal(page.speakerGroups.value.length, 3)
+})
+
+test('bulk rename cannot pretend to merge into a registered profile', () => {
+  const { page, messages } = setup()
+  page.detail.speakerSegments[2].speakerProfileId = 10
+  page.enterEditMode()
+  page.bulkSource.value = 'local:发言人1'
+  page.bulkTarget.value = '发言人2'
+  page.applyBulkSpeaker()
+  assert.equal(page.correctionForm.speakerSegments[0].speakerName, '发言人1')
+  assert.match(messages.at(-1).text, /档案候选/)
+})
+
+test('evaluation export preserves saved grouping without names, transcript or draft changes', () => {
+  const { page } = setup()
+  page.detail.speakerSegments[0].speakerProfileId = 10
+  page.detail.speakerSegments[1].speakerProfileId = 11
+  page.enterEditMode()
+  page.correctionForm.speakerSegments[0].speakerName = '未保存'
+  const value = page.buildEvaluationExport()
+  const json = JSON.stringify(value)
+  for (const secret of ['发言人', '预算', 'speakerProfileId', '未保存']) assert.ok(!json.includes(secret))
+  assert.notEqual(value.speakerSegments[0].speakerName, value.speakerSegments[1].speakerName)
+  assert.equal(value.speakerSegments[0].startMs, 0)
+})
+
 test('search combines speaker and text filters without modifying data', () => {
   const { page } = setup()
   page.segmentQuery.value = '预算'
-  page.speakerFilter.value = '发言人1'
+  page.speakerFilter.value = 'local:发言人1'
   assert.equal(page.visibleSegments.value.length, 1)
   assert.equal(page.segmentEditorList.value.length, 3)
   page.segmentQuery.value = 'a'
@@ -58,7 +111,7 @@ test('bulk merge affects entire source group, only in draft, and updates timelin
   const { page, requests } = setup()
   page.enterEditMode()
   page.segmentQuery.value = '预算'
-  page.bulkSource.value = '发言人1'
+  page.bulkSource.value = 'local:发言人1'
   page.bulkTarget.value = ' 发言人2 '
   assert.equal(page.bulkAffectedCount.value, 2)
   page.applyBulkSpeaker()
@@ -86,7 +139,7 @@ test('saving filtered view submits every segment and guards duplicate submit', a
 test('failed save preserves draft for retry', async () => {
   const { page } = setup({ failSave: true })
   page.enterEditMode()
-  page.bulkSource.value = '发言人1'
+  page.bulkSource.value = 'local:发言人1'
   page.bulkTarget.value = '人工确认组'
   page.applyBulkSpeaker()
   await page.saveCorrection()
@@ -128,12 +181,12 @@ test('history refresh failure after successful save does not invite duplicate wr
 
 test('read-only and in-flight states cannot apply bulk edits or discard drafts', () => {
   const { page } = setup()
-  page.bulkSource.value = '发言人1'
+  page.bulkSource.value = 'local:发言人1'
   page.bulkTarget.value = '新组'
   page.applyBulkSpeaker()
   assert.equal(page.detail.speakerSegments[0].speakerName, '发言人1')
   page.enterEditMode()
-  page.bulkSource.value = '发言人1'
+  page.bulkSource.value = 'local:发言人1'
   page.bulkTarget.value = '新组'
   page.saveLoading.value = true
   page.applyBulkSpeaker()
@@ -145,7 +198,7 @@ test('read-only and in-flight states cannot apply bulk edits or discard drafts',
 test('invalid or unchanged target does not modify drafts', () => {
   const { page } = setup()
   page.enterEditMode()
-  page.bulkSource.value = '发言人1'
+  page.bulkSource.value = 'local:发言人1'
   for (const target of ['', '   ', 'x'.repeat(65), '发言人1']) {
     page.bulkTarget.value = target
     page.applyBulkSpeaker()

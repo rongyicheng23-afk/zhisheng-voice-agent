@@ -1115,6 +1115,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         lines.add("按发言人整理（原文摘录；结论、待办候选需核对；发言人不自动等于负责人）");
         for (var group : com.wc.meeting.MeetingSpeakerOrganizer.organize(detail.getSpeakerSegments())) {
             lines.add(group.speakerName() + "：" + group.identityNotice());
+            for (var review : group.reviewItems()) lines.add("需复核 [片段 #" + review.segmentId()
+                    + " " + formatRange(review.startMs(), review.endMs()) + "] " + String.join("；", review.reasons()));
             appendEvidenceLines(lines, "观点与发言原文", group.statements());
             appendEvidenceLines(lines, "结论候选", group.decisionCandidates());
             appendEvidenceLines(lines, "待办候选", group.todoCandidates());
@@ -1126,7 +1128,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             List<com.wc.meeting.MeetingSpeakerOrganizer.Evidence> items) {
         lines.add(title + (items.isEmpty() ? "：未提取到相关原文" : "："));
         for (var evidence : items) lines.add("[片段 #" + evidence.segmentId() + " "
-                + formatRange(evidence.startMs(), evidence.endMs()) + "] " + evidence.text());
+                + formatRange(evidence.startMs(), evidence.endMs()) + "] " + evidence.text() + "（" + evidence.caution() + "）");
     }
 
     private void addDocxTitle(XWPFDocument document, String text) {
@@ -1650,9 +1652,6 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             Files.write(inputPath, rawBytes);
 
             List<TimeRange> ranges = detectSpeechRanges(inputPath);
-            if (ranges.isEmpty()) {
-                ranges = List.of(new TimeRange(0d, Math.max(1d, probeDurationSeconds(inputPath))));
-            }
 
             List<UserMeetingSegmentVO> segments = new ArrayList<>();
             try (var anonymousSession = diarizationAdapter.openSession()) {
@@ -1680,8 +1679,12 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
                         continue;
                     }
 
-                    SpeakerMatch bestMatch = matchSpeaker(segmentBytes, profiles, sampleAudioBytes);
-                    if (autoDiarization && bestMatch.profileId == null) {
+                    // Keep short speech in the transcript, but do not let a
+                    // brief acknowledgement seed or authenticate a speaker.
+                    boolean enoughSpeech = range.duration() >= MIN_SEGMENT_SECONDS;
+                    SpeakerMatch bestMatch = enoughSpeech
+                            ? matchSpeaker(segmentBytes, profiles, sampleAudioBytes) : SpeakerMatch.unknown();
+                    if (enoughSpeech && autoDiarization && bestMatch.profileId == null) {
                         var assignment = anonymousSession.assign(segmentBytes);
                         bestMatch = new SpeakerMatch(null, assignment.label(), assignment.similarity());
                     }
@@ -1761,34 +1764,13 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
 
     private List<TimeRange> detectSpeechRanges(Path inputPath) throws Exception {
         double duration = probeDurationSeconds(inputPath);
-        if (duration <= 0d) {
-            return Collections.emptyList();
-        }
-
-        List<TimeRange> silences = detectSilenceRanges(inputPath);
-        if (silences.isEmpty()) {
-            return splitLongRange(new TimeRange(0d, duration));
-        }
-
-        List<TimeRange> result = new ArrayList<>();
-        double currentStart = 0d;
-        for (TimeRange silence : silences) {
-            double speechEnd = Math.max(currentStart, silence.startSeconds);
-            if (speechEnd - currentStart >= MIN_SEGMENT_SECONDS) {
-                result.addAll(splitLongRange(new TimeRange(currentStart, speechEnd)));
-            }
-            currentStart = Math.max(currentStart, silence.endSeconds);
-        }
-        if (duration - currentStart >= MIN_SEGMENT_SECONDS) {
-            result.addAll(splitLongRange(new TimeRange(currentStart, duration)));
-        }
-        if (result.isEmpty()) {
-            result.addAll(splitLongRange(new TimeRange(0d, duration)));
-        }
-        return result;
+        var silences = detectSilenceRanges(inputPath, duration).stream()
+                .map(r -> new com.wc.meeting.diarization.SpeechRanges.Range(r.startSeconds, r.endSeconds)).toList();
+        return com.wc.meeting.diarization.SpeechRanges.speech(duration, silences, MAX_SEGMENT_SECONDS).stream()
+                .map(r -> new TimeRange(r.start(), r.end())).toList();
     }
 
-    private List<TimeRange> detectSilenceRanges(Path inputPath) throws Exception {
+    private List<TimeRange> detectSilenceRanges(Path inputPath, double duration) throws Exception {
         ProcessResult processResult = runCommand(List.of(
                 "ffmpeg",
                 "-i", inputPath.toString(),
@@ -1819,24 +1801,12 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
                 silences.add(new TimeRange(start, end));
             }
         }
+        // Some FFmpeg versions omit silence_end when silence reaches EOF.
+        if (silenceStarts.size() > silenceEnds.size()) {
+            silences.add(new TimeRange(silenceStarts.get(silenceStarts.size() - 1), duration));
+        }
         silences.sort(Comparator.comparing(range -> range.startSeconds));
         return silences;
-    }
-
-    private List<TimeRange> splitLongRange(TimeRange range) {
-        if (range.duration() <= MAX_SEGMENT_SECONDS) {
-            return List.of(range);
-        }
-        List<TimeRange> result = new ArrayList<>();
-        double cursor = range.startSeconds;
-        while (cursor < range.endSeconds) {
-            double end = Math.min(cursor + MAX_SEGMENT_SECONDS, range.endSeconds);
-            if (end - cursor >= MIN_SEGMENT_SECONDS) {
-                result.add(new TimeRange(cursor, end));
-            }
-            cursor = end;
-        }
-        return result;
     }
 
     private double probeDurationSeconds(Path inputPath) throws Exception {
@@ -2337,7 +2307,10 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             if (!StringUtils.hasText(speakerName) || "未知发言人".equals(speakerName)) {
                 continue;
             }
-            SpeakerRoleStats stats = statsMap.computeIfAbsent(speakerName, SpeakerRoleStats::new);
+            String groupKey = block.getSpeakerProfileId() != null ? "profile:" + block.getSpeakerProfileId() : "local:" + speakerName;
+            String displayName = block.getSpeakerProfileId() != null
+                    ? speakerName + "（档案 #" + block.getSpeakerProfileId() + " 候选）" : speakerName;
+            SpeakerRoleStats stats = statsMap.computeIfAbsent(groupKey, ignored -> new SpeakerRoleStats(displayName));
             String transcript = block.getTranscript().trim();
             stats.segmentCount += Math.max(1, block.getSegmentCount() == null ? 1 : block.getSegmentCount());
             stats.transcriptLength += transcript.length();
@@ -2404,7 +2377,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             ));
         }
 
-        Set<String> knownSpeakers = statsMap.keySet();
+        Set<String> knownSpeakers = statsMap.values().stream().map(item -> item.speakerName)
+                .collect(java.util.stream.Collectors.toSet());
         for (String todo : todos) {
             String owner = extractOwner(todo, knownSpeakers);
             if (StringUtils.hasText(owner)) {
@@ -2590,16 +2564,20 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         if (!StringUtils.hasText(sentence) || speakerBlocks == null || speakerBlocks.isEmpty()) {
             return null;
         }
-        Set<String> matches = new LinkedHashSet<>();
+        Map<String, String> matches = new LinkedHashMap<>();
         for (UserMeetingSpeakerBlockVO block : speakerBlocks) {
             if (block == null || !StringUtils.hasText(block.getTranscript())) {
                 continue;
             }
             if (block.getTranscript().contains(sentence)) {
-                matches.add(normalizeSpeakerName(block.getSpeakerName()));
+                String name = normalizeSpeakerName(block.getSpeakerName());
+                if (!StringUtils.hasText(name) || "未知发言人".equals(name)) return null;
+                String key = block.getSpeakerProfileId() != null ? "profile:" + block.getSpeakerProfileId() : "local:" + name;
+                matches.put(key, block.getSpeakerProfileId() != null
+                        ? name + "（档案 #" + block.getSpeakerProfileId() + " 候选）" : name);
             }
         }
-        return matches.size() == 1 ? matches.iterator().next() : null;
+        return matches.size() == 1 ? matches.values().iterator().next() : null;
     }
 
     private String shortenText(String text, int maxLength) {

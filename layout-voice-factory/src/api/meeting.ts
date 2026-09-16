@@ -181,6 +181,7 @@ export interface MeetingEvidence {
   startMs?: number
   endMs?: number
   text: string
+  caution?: string
 }
 
 export interface MeetingSpeakerSummary {
@@ -191,6 +192,7 @@ export interface MeetingSpeakerSummary {
   statements: MeetingEvidence[]
   decisionCandidates: MeetingEvidence[]
   todoCandidates: MeetingEvidence[]
+  reviewItems?: Array<{ segmentId: number, startMs?: number, endMs?: number, reasons: string[] }>
 }
 
 export interface MeetingHistoryQuery {

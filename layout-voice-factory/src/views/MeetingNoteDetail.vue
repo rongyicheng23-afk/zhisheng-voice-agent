@@ -187,10 +187,19 @@
           <div class="section-head">
             <span>按发言人整理 · 原文依据</span>
             <small>分组与人工名称仅用于本场会议；观点为原文摘录，结论和待办均需核对，发言人不自动等于负责人。</small>
+            <el-button size="small" :disabled="detail.status !== 'SUCCESS'" @click="downloadEvaluationSegments">下载匿名分组评估数据</el-button>
           </div>
           <article v-for="group in detail.speakerSummaries" :key="group.groupKey" class="speaker-evidence-card">
             <h3>{{ group.speakerName }} · {{ group.segmentCount }} 个片段</h3>
             <p>{{ group.identityNotice }}</p>
+            <details v-if="group.reviewItems?.length" open>
+              <summary>优先复核（{{ group.reviewItems.length }} 个片段；并非错误率）</summary>
+              <div v-for="item in group.reviewItems" :key="item.segmentId" class="speaker-evidence-quote">
+                <p>{{ item.reasons.join('；') }}</p>
+                <el-button size="small" :disabled="!detail.hasRawAudio || item.startMs == null || item.startMs < 0"
+                  @click="seekToTime(item.startMs)">试听片段 #{{ item.segmentId }}</el-button>
+              </div>
+            </details>
             <details v-for="section in [
               { title: '观点与发言原文', items: group.statements },
               { title: '结论候选', items: group.decisionCandidates },
@@ -200,6 +209,7 @@
               <p v-if="!section.items.length">未提取到相关原文</p>
               <div v-for="(evidence, index) in section.items" :key="evidence.segmentId + '-' + index" class="speaker-evidence-quote">
                 <p>{{ evidence.text }}</p>
+                <small v-if="evidence.caution">{{ evidence.caution }}</small>
                 <el-button size="small" :disabled="!detail.hasRawAudio || evidence.startMs == null"
                   @click="seekToTime(evidence.startMs)">
                   原文片段 #{{ evidence.segmentId }} · {{ formatRange(evidence.startMs, evidence.endMs) }} · 试听
@@ -493,7 +503,7 @@
           <div class="meeting-segment-tools">
             <el-input v-model="segmentQuery" clearable placeholder="搜索片段文本或发言人" aria-label="搜索发言片段" />
             <el-select v-model="speakerFilter" clearable placeholder="全部发言人" aria-label="筛选发言人">
-              <el-option v-for="group in speakerGroups" :key="group.name" :value="group.name" :label="`${group.name}（${group.count} 段）`" />
+              <el-option v-for="group in speakerGroups" :key="group.key" :value="group.key" :label="`${group.label}（${group.count} 段）`" />
             </el-select>
             <small>显示 {{ visibleSegments.length }} / {{ segmentEditorList.length }} 段，筛选不会删除或漏存其他片段。</small>
           </div>
@@ -502,7 +512,7 @@
             <p>重命名整个组；填写已有组名可合并误分组。只修改本场会议草稿，不代表声纹身份认证。</p>
             <div class="meeting-segment-tools">
               <el-select v-model="bulkSource" :disabled="saveLoading" placeholder="选择要校正的组" aria-label="要校正的发言组">
-                <el-option v-for="group in speakerGroups" :key="group.name" :value="group.name" :label="`${group.name}（${group.count} 段）`" />
+                <el-option v-for="group in speakerGroups" :key="group.key" :value="group.key" :label="`${group.label}（${group.count} 段）`" />
               </el-select>
               <el-input v-model="bulkTarget" :disabled="saveLoading" maxlength="64" placeholder="新名称或已有组名" aria-label="校正后的发言组名" />
               <el-button :disabled="saveLoading || !bulkAffectedCount || !bulkTarget.trim()" @click="applyBulkSpeaker">
@@ -824,14 +834,7 @@ export default defineComponent({
       }
     })
     const timelineLegend = computed(() => {
-      const uniqueNames = new Map<string, Record<string, string>>()
-      for (const segment of segmentEditorList.value) {
-        const name = segment.speakerName || '未知发言人'
-        if (!uniqueNames.has(name)) {
-          uniqueNames.set(name, speakerStyle(name))
-        }
-      }
-      return Array.from(uniqueNames.entries()).map(([name, style]) => ({ name, style }))
+      return speakerGroups.value.map(group => ({ name: group.label, style: speakerStyle(group.name) }))
     })
     const activeBlockIndex = computed(() => {
       const blocks = detail.speakerBlocks || []
@@ -844,21 +847,38 @@ export default defineComponent({
     })
     const segmentEditorList = computed(() => (editMode.value ? correctionForm.speakerSegments : (detail.speakerSegments || [])))
     const speakerName = (segment: MeetingSegmentItem) => (segment.speakerName || '').trim() || '未知发言人'
+    const effectiveProfile = (segment: MeetingSegmentItem) => {
+      const original = detail.speakerSegments?.find(item => item.id === segment.id)
+      if (editMode.value && original)
+        return speakerName(original) !== speakerName(segment) ? undefined : original.speakerProfileId
+      return segment.speakerProfileId
+    }
+    const speakerKey = (segment: MeetingSegmentItem) => {
+      const name = speakerName(segment)
+      if (name === '未知发言人') return `unknown:${segment.id}`
+      const profile = effectiveProfile(segment)
+      return profile != null ? `profile:${profile}` : `local:${name}`
+    }
     const speakerGroups = computed(() => {
-      const counts = new Map<string, number>()
+      const groups = new Map<string, { key: string, name: string, label: string, count: number }>()
       for (const segment of segmentEditorList.value) {
         const name = speakerName(segment)
-        counts.set(name, (counts.get(name) || 0) + 1)
+        const key = speakerKey(segment)
+        const profile = effectiveProfile(segment)
+        const label = name === '未知发言人' ? `${name} · 片段 #${segment.id}`
+          : profile != null ? `${name} · 档案 #${profile} 候选` : `${name} · 本场分组`
+        if (!groups.has(key)) groups.set(key, { key, name, label, count: 0 })
+        groups.get(key)!.count++
       }
-      return Array.from(counts, ([name, count]) => ({ name, count }))
+      return Array.from(groups.values())
     })
     const visibleSegments = computed(() => {
       const query = segmentQuery.value.trim().toLocaleLowerCase()
       return segmentEditorList.value.filter(segment =>
-        (!speakerFilter.value || speakerName(segment) === speakerFilter.value) &&
+        (!speakerFilter.value || speakerKey(segment) === speakerFilter.value) &&
         (!query || `${speakerName(segment)} ${segment.transcript || ''}`.toLocaleLowerCase().includes(query)))
     })
-    const bulkAffectedCount = computed(() => correctionForm.speakerSegments.filter(segment => speakerName(segment) === bulkSource.value).length)
+    const bulkAffectedCount = computed(() => correctionForm.speakerSegments.filter(segment => speakerKey(segment) === bulkSource.value).length)
     const applyBulkSpeaker = () => {
       if (!editMode.value || saveLoading.value || !ensureDetailAccess()) return
       const target = bulkTarget.value.trim()
@@ -866,18 +886,25 @@ export default defineComponent({
         ElMessage.warning('请选择发言组并填写 1–64 字符的新名称')
         return
       }
-      if (target === bulkSource.value) {
+      const source = speakerGroups.value.find(group => group.key === bulkSource.value)
+      if (target === source?.name) {
         ElMessage.info('名称未变化')
+        return
+      }
+      if (correctionForm.speakerSegments.some(segment => speakerKey(segment) !== bulkSource.value
+          && speakerName(segment) === target && effectiveProfile(segment) != null)) {
+        ElMessage.warning('目标名称属于声纹档案候选。请先给待合并的组改为独立的本场名称，再合并，避免混淆身份。')
         return
       }
       const count = bulkAffectedCount.value
       for (const segment of correctionForm.speakerSegments) {
-        if (speakerName(segment) === bulkSource.value) {
+        if (speakerKey(segment) === bulkSource.value) {
           segment.speakerName = target
+          segment.speakerProfileId = undefined
           segment.matchScore = undefined
         }
       }
-      if (speakerFilter.value === bulkSource.value) speakerFilter.value = target
+      if (speakerFilter.value === bulkSource.value) speakerFilter.value = target === '未知发言人' ? '' : `local:${target}`
       bulkSource.value = ''
       bulkTarget.value = ''
       ElMessage.success(`已校正 ${count} 段草稿，点击“保存校正”后生效`)
@@ -1341,6 +1368,30 @@ export default defineComponent({
       URL.revokeObjectURL(url)
     }
 
+    const buildEvaluationExport = () => {
+      // Saved result only, with no transcript, real names, profile IDs or audio.
+      const labels = new Map<string, string>()
+      return { speakerSegments: (detail.speakerSegments || []).map(segment => {
+        const name = speakerName(segment)
+        const key = segment.speakerProfileId != null ? `profile:${segment.speakerProfileId}` : `local:${name}`
+        if (!labels.has(key)) labels.set(key, `group-${labels.size + 1}`)
+        return { startMs: segment.startMs, endMs: segment.endMs,
+          speakerName: name === '未知发言人' ? name : labels.get(key) }
+      }) }
+    }
+    const downloadEvaluationSegments = () => {
+      if (!ensureDetailAccess() || detail.status !== 'SUCCESS' || editMode.value) return
+      const blob = new Blob([JSON.stringify(buildEvaluationExport(), null, 2)], { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'meeting-anonymous-evaluation.json'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    }
+
     const openHistoryDrawer = () => {
       if (!ensureDetailAccess()) {
         return
@@ -1385,6 +1436,8 @@ export default defineComponent({
       exportTemplateConfig,
       correctionForm,
       downloadCorrectionDraft,
+      buildEvaluationExport,
+      downloadEvaluationSegments,
       revisionList,
       leftRevisionId,
       rightRevisionId,

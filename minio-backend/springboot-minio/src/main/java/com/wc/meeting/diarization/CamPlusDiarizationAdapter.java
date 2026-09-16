@@ -38,6 +38,7 @@ public class CamPlusDiarizationAdapter implements SpeakerDiarizationAdapter {
 
     private final class GroupingSession implements Session {
         private final List<byte[]> representatives = new ArrayList<>();
+        private final List<byte[]> recentRepresentatives = new ArrayList<>();
         private boolean closed;
 
         @Override public synchronized Assignment assign(byte[] wav) throws IOException {
@@ -48,38 +49,61 @@ public class CamPlusDiarizationAdapter implements SpeakerDiarizationAdapter {
             BigDecimal secondScore = null;
             boolean incomplete = false;
             for (int i = 0; i < representatives.size(); i++) {
-                VoiceprintCompareResult result = voiceprint.compare(
-                        new InMemoryMultipartFile("file1", "anonymous.wav", "audio/wav", representatives.get(i)),
-                        new InMemoryMultipartFile("file2", "segment.wav", "audio/wav", wav));
-                BigDecimal score = result == null ? null : result.getScore();
-                if (score == null || score.compareTo(BigDecimal.ONE.negate()) < 0 || score.compareTo(BigDecimal.ONE) > 0) {
+                BigDecimal score = compare(representatives.get(i), wav);
+                if (recentRepresentatives.get(i) != null) {
+                    BigDecimal recent = compare(recentRepresentatives.get(i), wav);
+                    if (score != null && recent != null
+                            && (score.compareTo(threshold) >= 0) != (recent.compareTo(threshold) >= 0))
+                        incomplete = true;
+                    // Require agreement with both the original anchor and the
+                    // refreshed sample; a drifting sample cannot take over.
+                    score = score == null || recent == null ? null : score.min(recent);
+                }
+                if (score == null) {
                     incomplete = true;
                     continue;
                 }
                 // Verification's samePerson flag uses another threshold. Do not
                 // let that flag bypass the meeting-specific grouping threshold.
-                if (score.compareTo(threshold) >= 0 && (bestScore == null || score.compareTo(bestScore) > 0)) {
+                if (bestScore == null || score.compareTo(bestScore) > 0) {
                     secondScore = bestScore;
                     best = i;
                     bestScore = score;
-                } else if (score.compareTo(threshold) >= 0 && (secondScore == null || score.compareTo(secondScore) > 0)) {
+                } else if (secondScore == null || score.compareTo(secondScore) > 0) {
                     secondScore = score;
                 }
             }
             // Similar scores for different groups cannot establish attribution.
-            if (incomplete || (secondScore != null && bestScore.subtract(secondScore).compareTo(ambiguityMargin) <= 0))
+            if (incomplete || (bestScore != null && bestScore.compareTo(threshold) >= 0
+                    && secondScore != null && bestScore.subtract(secondScore).compareTo(ambiguityMargin) <= 0))
                 return new Assignment("未知发言人", null);
-            if (best >= 0) return new Assignment("说话人 " + (best + 1), bestScore);
+            if (best >= 0 && bestScore.compareTo(threshold) >= 0) {
+                // At most two samples per group, scoped to this meeting only.
+                if (bestScore.compareTo(threshold.max(new BigDecimal("0.90"))) >= 0)
+                    recentRepresentatives.set(best, wav.clone());
+                return new Assignment("说话人 " + (best + 1), bestScore);
+            }
             // Missing comparison evidence does not prove a new speaker exists.
             if (representatives.size() >= maxSpeakers) return new Assignment("未知发言人", null);
             representatives.add(wav.clone());
+            recentRepresentatives.add(null);
             // No match was accepted, so a new group must not inherit a rejected score.
             return new Assignment("说话人 " + representatives.size(), null);
         }
 
         @Override public synchronized void close() {
             representatives.clear();
+            recentRepresentatives.clear();
             closed = true;
+        }
+
+        private BigDecimal compare(byte[] reference, byte[] wav) throws IOException {
+            VoiceprintCompareResult result = voiceprint.compare(
+                    new InMemoryMultipartFile("file1", "anonymous.wav", "audio/wav", reference),
+                    new InMemoryMultipartFile("file2", "segment.wav", "audio/wav", wav));
+            BigDecimal score = result == null ? null : result.getScore();
+            return score == null || score.compareTo(BigDecimal.ONE.negate()) < 0
+                    || score.compareTo(BigDecimal.ONE) > 0 ? null : score;
         }
     }
 }

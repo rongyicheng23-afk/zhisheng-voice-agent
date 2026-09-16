@@ -57,6 +57,25 @@ class MeetingSpeakerOrganizerTests {
         assertTrue(group.todoCandidates().isEmpty());
     }
 
+    @Test void reviewQueueKeepsUnknownShortAndCandidateIdentityExplicit() {
+        var unknown = segment(1, "未知发言人", "是否决定提交？尚未决定上线。暂定周五提交。");
+        var profile = segment(2, "王", "继续。"); profile.setSpeakerProfileId(10);
+        var groups = MeetingSpeakerOrganizer.organize(List.of(unknown, profile));
+        assertEquals(1, groups.get(0).reviewItems().size());
+        assertEquals(1, groups.get(0).reviewItems().get(0).segmentId());
+        assertTrue(groups.get(0).reviewItems().get(0).reasons().stream().anyMatch(s -> s.contains("短发言")));
+        assertTrue(groups.get(1).reviewItems().get(0).reasons().stream().anyMatch(s -> s.contains("身份")));
+        assertTrue(groups.get(0).statements().get(0).caution().contains("疑问"));
+        assertTrue(groups.get(0).statements().get(1).caution().contains("否定"));
+        assertTrue(groups.get(0).statements().get(2).caution().contains("待定"));
+    }
+
+    @Test void unknownSegmentsWithoutIdsNeverMerge() {
+        var a = segment(1, null, "甲。"); a.setId(null);
+        var b = segment(2, null, "乙。"); b.setId(null);
+        assertEquals(2, MeetingSpeakerOrganizer.organize(List.of(a, b)).size());
+    }
+
     @Test void adjacentBlocksDoNotMergeDifferentProfilesWithTheSameName() {
         var service = new UserMeetingNoteServiceImpl();
         var a = segment(1, "王", "第一人。"); a.setSpeakerProfileId(10);
@@ -77,6 +96,19 @@ class MeetingSpeakerOrganizerTests {
         assertEquals("李四", owner);
         owner = ReflectionTestUtils.invokeMethod(service, "extractOwner", "请我们提交报告", Set.of());
         assertNull(owner);
+    }
+
+    @Test void legacyRoleAndDecisionViewsDoNotCollapseSameNamedProfiles() {
+        var service = new UserMeetingNoteServiceImpl();
+        var a = new UserMeetingSpeakerBlockVO(); a.setSpeakerName("王"); a.setSpeakerProfileId(10); a.setTranscript("接下来决定继续讨论。");
+        var b = new UserMeetingSpeakerBlockVO(); b.setSpeakerName("王"); b.setSpeakerProfileId(11); b.setTranscript("接下来决定继续讨论。");
+        String speaker = ReflectionTestUtils.invokeMethod(service, "resolveSpeakerFromSentence", "决定继续讨论。", List.of(a, b));
+        assertNull(speaker);
+        List<UserMeetingRoleInsightVO> roles = ReflectionTestUtils.invokeMethod(service, "buildRoleInsights", List.of(a, b), List.of());
+        assertTrue(roles.get(0).getSpeakerName().contains("档案 #"));
+        assertTrue(roles.get(0).getContribution().contains("1 段"));
+        a.setSpeakerName("未知发言人"); a.setSpeakerProfileId(null);
+        assertNull(ReflectionTestUtils.invokeMethod(service, "resolveSpeakerFromSentence", "决定继续讨论。", List.of(a)));
     }
 
     @Test void exportsIncludeTraceableQuotesAndRespectSpeakerSectionToggle() throws Exception {

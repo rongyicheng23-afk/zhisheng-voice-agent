@@ -111,4 +111,35 @@ class CamPlusDiarizationTests {
             assertEquals("未知发言人", session.assign(new byte[]{2}).label());
         }
     }
+
+    @Test void nearThresholdRunnerUpStillMakesAttributionAmbiguous() throws Exception {
+        var service = mock(VoiceprintService.class);
+        when(service.compare(any(), any())).thenReturn(result("0.1", false), result("0.73", true), result("0.71", false));
+        try (var session = adapter(service).openSession()) {
+            session.assign(new byte[]{1}); session.assign(new byte[]{2});
+            assertEquals("未知发言人", session.assign(new byte[]{3}).label());
+        }
+    }
+
+    @Test void highConfidenceRefreshRetainsAnchorAndRejectsDisagreement() throws Exception {
+        var service = mock(VoiceprintService.class);
+        when(service.compare(any(), any())).thenReturn(result("0.95", true), result("0.93", true), result("0.4", false));
+        try (var session = adapter(service).openSession()) {
+            session.assign(new byte[]{1}); session.assign(new byte[]{2});
+            assertEquals("未知发言人", session.assign(new byte[]{3}).label());
+        }
+        var references = org.mockito.ArgumentCaptor.forClass(org.springframework.web.multipart.MultipartFile.class);
+        verify(service, times(3)).compare(references.capture(), any());
+        assertArrayEquals(new byte[]{1}, references.getAllValues().get(1).getBytes());
+        assertArrayEquals(new byte[]{2}, references.getAllValues().get(2).getBytes());
+    }
+
+    @Test void agreeingRefreshedSamplesRemainBoundedAndAcceptGroup() throws Exception {
+        var service = mock(VoiceprintService.class);
+        when(service.compare(any(), any())).thenReturn(result("0.95", true));
+        try (var session = adapter(service).openSession()) {
+            for (int i = 0; i < 8; i++) assertEquals("说话人 1", session.assign(new byte[]{(byte)i}).label());
+        }
+        verify(service, times(13)).compare(any(), any());
+    }
 }
