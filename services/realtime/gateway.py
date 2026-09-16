@@ -28,6 +28,7 @@ from uuid import UUID, uuid4
 import httpx
 import websockets
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 
@@ -536,8 +537,11 @@ class GatewaySession:
         # Per-WebSocket context only. It is intentionally capped and is never
         # persisted to disk, so a fresh browser session starts a fresh dialog.
         self.conversation_history: list[tuple[str, str]] = []
+        self.turn_started_at: dict[str, float] = {}
 
     async def start_turn(self, turn_id: str) -> None:
+        self.turn_started_at[turn_id] = time.monotonic()
+        gateway_metrics.started += 1
         event = self.events.start_turn(turn_id)
         self.chunkers[turn_id] = AdaptiveSemanticChunker()
         self.cancel_signals[turn_id] = asyncio.Event()
@@ -556,12 +560,26 @@ class GatewaySession:
         for task in self.tasks.pop(turn_id, set()):
             task.cancel()
         self._enqueue(event)
+        gateway_metrics.cancelled += 1
 
     def register_task(self, turn_id: str, task: asyncio.Task[object]) -> None:
         self.tasks[turn_id].add(task)
         task.add_done_callback(lambda completed: self.tasks[turn_id].discard(completed))
 
     def emit(self, turn_id: str, event: str, **payload: object) -> None:
+        elapsed_ms = round((time.monotonic() - self.turn_started_at.get(turn_id, time.monotonic())) * 1000)
+        if event == "llm.first_token":
+            gateway_metrics.record_first_token(elapsed_ms)
+            payload.setdefault("latencyMs", elapsed_ms)
+        elif event == "tts.first_audio":
+            gateway_metrics.record_first_audio(elapsed_ms)
+            payload.setdefault("latencyMs", elapsed_ms)
+        elif event == "turn.completed":
+            gateway_metrics.completed += 1
+        elif event == "turn.failed":
+            gateway_metrics.failed += 1
+        elif event == "playback.buffer_underrun":
+            gateway_metrics.buffer_underruns += 1
         self._enqueue(self.events.emit(turn_id, event, **payload))
 
     def open_asr_input(self, turn_id: str) -> asyncio.Queue[bytes | None]:
@@ -634,8 +652,55 @@ async def consume_ticket(ticket: str, settings: GatewaySettings) -> int | None:
         return None
 
 
+class GatewayMetrics:
+    """Process-local operational counters; never stores audio, prompts or identities."""
+    def __init__(self) -> None:
+        self.started = 0
+        self.completed = 0
+        self.cancelled = 0
+        self.failed = 0
+        self.buffer_underruns = 0
+        self.first_token_samples: list[int] = []
+        self.first_audio_samples: list[int] = []
+
+    @staticmethod
+    def _average(values: list[int]) -> int | None:
+        return round(sum(values) / len(values)) if values else None
+
+    @staticmethod
+    def _append(values: list[int], value: int) -> None:
+        values.append(value)
+        del values[:-200]
+
+    def record_first_token(self, value: int) -> None:
+        self._append(self.first_token_samples, value)
+
+    def record_first_audio(self, value: int) -> None:
+        self._append(self.first_audio_samples, value)
+
+    def view(self) -> dict[str, object]:
+        return {
+            "turnsStarted": self.started,
+            "turnsCompleted": self.completed,
+            "turnsCancelled": self.cancelled,
+            "turnsFailed": self.failed,
+            "bufferUnderruns": self.buffer_underruns,
+            "averageFirstTokenMs": self._average(self.first_token_samples),
+            "averageFirstAudioMs": self._average(self.first_audio_samples),
+            "sampleWindow": len(self.first_token_samples),
+        }
+
+
 settings = GatewaySettings.from_environment()
+gateway_metrics = GatewayMetrics()
 app = FastAPI(title="Zhisheng Realtime Gateway", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(settings.allowed_origins),
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/realtime/health")
@@ -653,6 +718,12 @@ async def health() -> JSONResponse:
         "ttsVoice": settings.xfyun_tts_voice if settings.has_xfyun_tts_credentials else None,
         "knowledgeRetriever": "spring-faiss" if settings.internal_key else "not-configured",
     })
+
+
+@app.get("/realtime/metrics")
+async def metrics() -> JSONResponse:
+    """Aggregate, de-identified data for the system observation UI."""
+    return JSONResponse({"status": "UP", "metrics": gateway_metrics.view()})
 
 
 @app.websocket("/realtime/ws")
@@ -957,50 +1028,79 @@ async def _stream_tts_segments(
     session: GatewaySession, tts: TtsStreamingAdapter, turn_id: str,
     segment_queue: asyncio.Queue[tuple[int, str, list[str]] | None]
 ) -> None:
-    """Preserve sentence order while each iFlytek request streams PCM chunks."""
+    """Pre-synthesize nearby segments while preserving ordered PCM metadata.
+
+    Keep one following segment in flight while the preceding segment is still
+    playing.  This removes the provider connection gap at sentence boundaries.
+    Future packets are safe: the browser stores both future PCM and its
+    completion marker, then releases them only after every earlier
+    ``segmentSequence`` has been drained.
+    """
     cancel = session.cancel_signals[turn_id]
+    max_parallel_segments = 2
+    active_workers: set[asyncio.Task[None]] = set()
+
+    async def synthesize_segment(segment_index: int, text: str, citation_ids: list[str]) -> None:
+        first_audio = True
+        chunk_sequence = 0
+        segment_started = time.monotonic()
+        try:
+            async for chunk in tts.stream_audio(text, cancel):
+                if cancel.is_set():
+                    return
+                encoded = base64.b64encode(chunk).decode("ascii")
+                if first_audio:
+                    session.emit(
+                        turn_id, "tts.first_audio", segmentIndex=segment_index, segmentSequence=segment_index,
+                        codec="pcm_s16le", format="pcm_s16le", sampleRate=16000, channels=1,
+                        synthesisMode="streaming", citationIds=citation_ids,
+                    )
+                    first_audio = False
+                session.emit(
+                    turn_id, "audio.chunk", segmentIndex=segment_index,
+                    segmentSequence=segment_index, chunkSequence=chunk_sequence,
+                    codec="pcm_s16le", format="pcm_s16le", sampleRate=16000, channels=1,
+                    synthesisMode="streaming", citationIds=citation_ids, audioBase64=encoded,
+                )
+                chunk_sequence += 1
+            if not cancel.is_set():
+                session.emit(
+                    turn_id, "tts.segment_completed", segmentIndex=segment_index,
+                    segmentSequence=segment_index, chunkCount=chunk_sequence,
+                    synthesisMode="streaming", citationIds=citation_ids,
+                    elapsedMs=round((time.monotonic() - segment_started) * 1000),
+                )
+        except (TtsConfigurationError, TtsProviderError) as error:
+            if not cancel.is_set():
+                session.emit(turn_id, "tts.failed", code="tts_unavailable", message=str(error))
+
     try:
         while True:
+            # Bound provider connections.  When both slots are in use, wait
+            # for one segment to finish rather than growing unbounded tasks.
+            if len(active_workers) >= max_parallel_segments:
+                _done, active_workers = await asyncio.wait(
+                    active_workers, return_when=asyncio.FIRST_COMPLETED
+                )
+                continue
             item = await segment_queue.get()
             try:
                 if item is None or cancel.is_set():
-                    return
+                    break
                 segment_index, text, citation_ids = item
-                first_audio = True
-                chunk_sequence = 0
-                segment_started = time.monotonic()
-                async for chunk in tts.stream_audio(text, cancel):
-                    if cancel.is_set():
-                        return
-                    encoded = base64.b64encode(chunk).decode("ascii")
-                    if first_audio:
-                        session.emit(
-                            turn_id, "tts.first_audio", segmentIndex=segment_index, segmentSequence=segment_index,
-                            codec="pcm_s16le", format="pcm_s16le", sampleRate=16000, channels=1,
-                            synthesisMode="streaming", citationIds=citation_ids,
-                        )
-                        first_audio = False
-                    session.emit(
-                        turn_id, "audio.chunk", segmentIndex=segment_index,
-                        segmentSequence=segment_index, chunkSequence=chunk_sequence,
-                        codec="pcm_s16le", format="pcm_s16le", sampleRate=16000, channels=1,
-                        synthesisMode="streaming", citationIds=citation_ids, audioBase64=encoded,
-                    )
-                    chunk_sequence += 1
-                if not cancel.is_set():
-                    session.emit(
-                        turn_id, "tts.segment_completed", segmentIndex=segment_index,
-                        segmentSequence=segment_index, chunkCount=chunk_sequence,
-                        synthesisMode="streaming", citationIds=citation_ids,
-                        elapsedMs=round((time.monotonic() - segment_started) * 1000),
-                    )
+                active_workers.add(asyncio.create_task(synthesize_segment(segment_index, text, citation_ids)))
             finally:
                 segment_queue.task_done()
+        if active_workers:
+            await asyncio.gather(*active_workers)
     except asyncio.CancelledError:
         raise
-    except (TtsConfigurationError, TtsProviderError) as error:
-        if not cancel.is_set():
-            session.emit(turn_id, "tts.failed", code="tts_unavailable", message=str(error))
+    finally:
+        for worker in active_workers:
+            if not worker.done():
+                worker.cancel()
+        if active_workers:
+            await asyncio.gather(*active_workers, return_exceptions=True)
 
 
 def _offer_audio_end(audio: asyncio.Queue[bytes | None]) -> None:

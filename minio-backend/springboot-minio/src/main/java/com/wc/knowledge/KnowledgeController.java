@@ -1,6 +1,8 @@
 package com.wc.knowledge;
 
 import com.wc.result.result.R;
+import com.wc.access.AccessControlService;
+import com.wc.access.AccessDeniedException;
 import com.wc.utils.AuthContextUtil;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,9 +20,11 @@ import java.time.LocalDate;
 @RequestMapping("/api/knowledge")
 public class KnowledgeController {
     private final KnowledgeService service;
+    private final AccessControlService access;
 
-    public KnowledgeController(KnowledgeService service) {
+    public KnowledgeController(KnowledgeService service, AccessControlService access) {
         this.service = service;
+        this.access = access;
     }
 
     @PostMapping("/documents")
@@ -33,7 +37,11 @@ public class KnowledgeController {
             @RequestParam(value = "validUntil", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate validUntil
     ) {
         try {
-            return R.OK(service.upload(AuthContextUtil.currentUserId(), file, title, source, version, validFrom, validUntil));
+            Integer userId = AuthContextUtil.currentUserId();
+            access.requireKnowledgeManager(userId);
+            return R.OK(service.upload(userId, file, title, source, version, validFrom, validUntil));
+        } catch (AccessDeniedException error) {
+            return new R(403, error.getMessage(), null);
         } catch (IllegalArgumentException error) {
             return new R(400, error.getMessage(), null);
         } catch (Exception error) {
@@ -44,7 +52,70 @@ public class KnowledgeController {
     @PostMapping("/documents/{documentId}/publish")
     public R publish(@PathVariable Long documentId) {
         try {
-            return R.OK(service.publish(AuthContextUtil.currentUserId(), documentId));
+            Integer userId = AuthContextUtil.currentUserId(); access.requireKnowledgeManager(userId);
+            return R.OK(service.publish(userId, documentId));
+        } catch (AccessDeniedException error) { return new R(403, error.getMessage(), null);
+        } catch (IllegalArgumentException error) {
+            return new R(400, error.getMessage(), null);
+        } catch (Exception error) {
+            return new R(503, "RAG 索引服务不可用，请确认服务和向量模型已启动", null);
+        }
+    }
+
+    /** Submit a draft for review. A document never enters retrieval before approval. */
+    @PostMapping("/documents/{documentId}/submit-review")
+    public R submitReview(@PathVariable Long documentId) {
+        try {
+            Integer userId = AuthContextUtil.currentUserId(); access.requireKnowledgeManager(userId);
+            return R.OK(service.submitReview(userId, documentId));
+        } catch (AccessDeniedException error) { return new R(403, error.getMessage(), null);
+        } catch (IllegalArgumentException error) {
+            return new R(400, error.getMessage(), null);
+        }
+    }
+
+    /** The owner is the local demo's material administrator. */
+    @PostMapping("/documents/{documentId}/approve")
+    public R approve(@PathVariable Long documentId) {
+        try {
+            Integer userId = AuthContextUtil.currentUserId(); access.requireKnowledgeManager(userId);
+            return R.OK(service.approve(userId, documentId));
+        } catch (AccessDeniedException error) { return new R(403, error.getMessage(), null);
+        } catch (IllegalArgumentException error) {
+            return new R(400, error.getMessage(), null);
+        } catch (Exception error) {
+            return new R(503, "RAG 索引服务不可用，请确认服务和向量模型已启动", null);
+        }
+    }
+
+    @PostMapping("/documents/{documentId}/offline")
+    public R offline(@PathVariable Long documentId) {
+        try {
+            Integer userId = AuthContextUtil.currentUserId(); access.requireKnowledgeManager(userId);
+            return R.OK(service.offline(userId, documentId));
+        } catch (AccessDeniedException error) { return new R(403, error.getMessage(), null);
+        } catch (IllegalArgumentException error) {
+            return new R(400, error.getMessage(), null);
+        }
+    }
+
+    @PostMapping("/documents/{documentId}/restore-draft")
+    public R restoreDraft(@PathVariable Long documentId) {
+        try {
+            Integer userId = AuthContextUtil.currentUserId(); access.requireKnowledgeManager(userId);
+            return R.OK(service.restoreToDraft(userId, documentId));
+        } catch (AccessDeniedException error) { return new R(403, error.getMessage(), null);
+        } catch (IllegalArgumentException error) {
+            return new R(400, error.getMessage(), null);
+        }
+    }
+
+    @PostMapping("/documents/{documentId}/reindex")
+    public R reindex(@PathVariable Long documentId) {
+        try {
+            Integer userId = AuthContextUtil.currentUserId(); access.requireKnowledgeManager(userId);
+            return R.OK(service.reindex(userId, documentId));
+        } catch (AccessDeniedException error) { return new R(403, error.getMessage(), null);
         } catch (IllegalArgumentException error) {
             return new R(400, error.getMessage(), null);
         } catch (Exception error) {

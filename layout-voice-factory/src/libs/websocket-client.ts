@@ -18,6 +18,7 @@ export type RealtimeGatewayEvent = {
   codec?: string
   segmentSequence?: number
   chunkSequence?: number
+  chunkCount?: number
   synthesisMode?: 'streaming' | 'segmented'
   reason?: string
   code?: string
@@ -168,6 +169,15 @@ export function WebSocketConnectMethod(config: {
   let activeTurnId: string | null = null
   const turnsWithAudio = new Set<string>()
   const player = new PcmTurnPlayer({
+    onError: (turnId, message) => {
+      if (client.isConnected() && activeTurnId === turnId) {
+        try { client.send({ event: 'turn.interrupt', turnId }) } catch (_) { /* disconnected */ }
+      }
+      activeTurnId = null
+      turnsWithAudio.delete(turnId)
+      config.errorHandle?.(message)
+      config.gatewayEventHandle?.({ event: 'turn.failed', turnId, message })
+    },
     onTurnPlaybackEnded: turnId => {
       turnsWithAudio.delete(turnId)
       config.playbackEndedHandle?.(turnId)
@@ -213,7 +223,7 @@ export function WebSocketConnectMethod(config: {
         )
       }
       if (event.event === 'tts.segment_completed' && event.turnId) {
-        player.completeSegment(event.turnId, event.segmentSequence ?? 0)
+        player.completeSegment(event.turnId, event.segmentSequence ?? 0, event.chunkCount ?? -1)
       }
       if (event.event === 'turn.completed' && event.turnId) {
         const hadAudio = turnsWithAudio.has(event.turnId)

@@ -113,6 +113,58 @@ public class KnowledgeService {
 
     public Map<String, Object> publish(Integer userId, Long documentId) {
         KnowledgeDocument document = requireOwner(userId, documentId);
+        if (!"REVIEW".equals(document.getStatus()) && !"DRAFT".equals(document.getStatus())) {
+            throw new IllegalArgumentException("只有待审核资料可以发布");
+        }
+        return indexAndPublish(document);
+    }
+
+    public Map<String, Object> submitReview(Integer userId, Long documentId) {
+        KnowledgeDocument document = requireOwner(userId, documentId);
+        if (!"DRAFT".equals(document.getStatus())) throw new IllegalArgumentException("只有草稿可以提交审核");
+        document.setStatus("REVIEW");
+        document.setUpdateTime(new Date());
+        documents.updateById(document);
+        return documentView(document, documentChunks(documentId).size());
+    }
+
+    public Map<String, Object> approve(Integer userId, Long documentId) {
+        KnowledgeDocument document = requireOwner(userId, documentId);
+        if (!"REVIEW".equals(document.getStatus())) throw new IllegalArgumentException("请先将资料提交审核");
+        return indexAndPublish(document);
+    }
+
+    public Map<String, Object> offline(Integer userId, Long documentId) {
+        KnowledgeDocument document = requireOwner(userId, documentId);
+        if (!"PUBLISHED".equals(document.getStatus())) throw new IllegalArgumentException("只有已发布资料可以下架");
+        document.setStatus("OFFLINE");
+        document.setUpdateTime(new Date());
+        documents.updateById(document);
+        return documentView(document, documentChunks(documentId).size());
+    }
+
+    /**
+     * An offline document must be reviewed again before it can be published.
+     * Moving it back to a draft keeps that lifecycle explicit instead of
+     * letting the UI submit an invalid OFFLINE -> REVIEW transition.
+     */
+    public Map<String, Object> restoreToDraft(Integer userId, Long documentId) {
+        KnowledgeDocument document = requireOwner(userId, documentId);
+        if (!"OFFLINE".equals(document.getStatus())) throw new IllegalArgumentException("只有已下架资料可以恢复为草稿");
+        document.setStatus("DRAFT");
+        document.setUpdateTime(new Date());
+        documents.updateById(document);
+        return documentView(document, documentChunks(documentId).size());
+    }
+
+    public Map<String, Object> reindex(Integer userId, Long documentId) {
+        KnowledgeDocument document = requireOwner(userId, documentId);
+        if (!"PUBLISHED".equals(document.getStatus())) throw new IllegalArgumentException("请先发布资料，再重新索引");
+        return indexAndPublish(document);
+    }
+
+    private Map<String, Object> indexAndPublish(KnowledgeDocument document) {
+        Long documentId = document.getId();
         List<KnowledgeChunk> documentChunks = documentChunks(documentId);
         if (documentChunks.isEmpty()) throw new IllegalArgumentException("资料尚未完成切片，不能发布");
         ragClient.index(documentChunks);

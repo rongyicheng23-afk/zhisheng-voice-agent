@@ -16,6 +16,7 @@
         <router-link to="/VoicePrintCompare" class="vf-menu-item" active-class="is-active">声纹对比</router-link>
         <router-link to="/MeetingNotes" class="vf-menu-item" active-class="is-active">智能纪要</router-link>
         <router-link to="/knowledge" class="vf-menu-item" active-class="is-active">知识库</router-link>
+        <router-link v-if="canUseManagement" to="/admin" class="vf-menu-item" active-class="is-active">管理中心</router-link>
       </div>
 
       <div class="vf-actions">
@@ -61,6 +62,7 @@
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="profile">个人主页</el-dropdown-item>
+                <el-dropdown-item v-if="canUseManagement" command="admin">管理中心</el-dropdown-item>
                 <el-dropdown-item command="logout" divided>注销</el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -79,13 +81,14 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, PropType } from 'vue'
+import { computed, defineComponent, onMounted, PropType, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 import { ElMessage } from 'element-plus'
 import { GlobalDataProps, UserProps } from '@/store/types'
 import { useAuthThemeMode } from '@/composables/useAuthThemeMode'
 import { useCommandPalette } from '@/composables/useCommandPalette'
+import { getAdminProfile } from '@/api/admin'
 
 export default defineComponent({
   name: 'GlobalHeader',
@@ -104,6 +107,7 @@ export default defineComponent({
     const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
     const shortcutLabel = isMac ? '⌘K' : 'Ctrl K'
     const isLoggedIn = computed(() => store.getters.isLoggedIn)
+    const canUseManagement = ref(false)
     const hideNavMenu = computed(() => Boolean(route.meta.hideNavMenu))
     const displayName = computed(() => store.state.user?.nickName || store.state.user?.email || '用户')
     const avatarText = computed(() => displayName.value.slice(0, 1).toUpperCase())
@@ -113,6 +117,7 @@ export default defineComponent({
         router.push('/profile')
         return
       }
+      if (command === 'admin') { router.push('/admin'); return }
       if (command === 'logout') {
         store.commit('logout')
         ElMessage.success('已退出登录')
@@ -120,8 +125,21 @@ export default defineComponent({
       }
     }
 
+    const refreshManagementAccess = async () => {
+      if (!isLoggedIn.value) { canUseManagement.value = false; return }
+      try {
+        const response = await getAdminProfile()
+        if (response.code === 200) {
+          canUseManagement.value = response.data.canManageKnowledge || response.data.canObserveSystem || response.data.canManageUsers
+        }
+      } catch { canUseManagement.value = false }
+    }
+    onMounted(refreshManagementAccess)
+    watch(isLoggedIn, refreshManagementAccess)
+
     return {
       isLoggedIn,
+      canUseManagement,
       isDark,
       hideNavMenu,
       displayName,

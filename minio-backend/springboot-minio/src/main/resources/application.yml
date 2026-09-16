@@ -14,7 +14,7 @@ spring:
   sql:
     init:
       mode: ${SQL_INIT_MODE:always}
-      schema-locations: classpath:sql/t_user_audio_history.sql,classpath:sql/t_user_tts_history.sql,classpath:sql/t_user_voiceprint_history.sql,classpath:sql/t_user_speaker_profile.sql,classpath:sql/t_user_meeting_note.sql,classpath:sql/t_user_meeting_segment.sql,classpath:sql/t_user_meeting_revision.sql,classpath:sql/t_user_auth_schema.sql,classpath:sql/t_knowledge_document.sql,classpath:sql/t_user_realtime_chat_history.sql
+      schema-locations: classpath:sql/t_user_audio_history.sql,classpath:sql/t_user_tts_history.sql,classpath:sql/t_user_voiceprint_history.sql,classpath:sql/t_user_speaker_profile.sql,classpath:sql/t_user_meeting_note.sql,classpath:sql/t_user_meeting_segment.sql,classpath:sql/t_user_meeting_revision.sql,classpath:sql/t_user_auth_schema.sql,classpath:sql/t_knowledge_document.sql,classpath:sql/t_user_realtime_chat_history.sql,classpath:sql/t_user_role_assignment.sql
       data-locations: ${SQL_DATA_LOCATIONS:classpath:sql/t_user_auth_data.sql}
 
   servlet:
@@ -64,6 +64,11 @@ realtime:
     # Required whenever the Python realtime gateway is enabled. Do not use a
     # default here: the gateway must not accept browser traffic without it.
     internal-key: ${REALTIME_GATEWAY_INTERNAL_KEY:}
+
+app:
+  # Only for an empty local role table. Set this through the ignored local env file,
+  # never hard-code a personal account in the repository.
+  bootstrap-admin-username: ${APP_BOOTSTRAP_ADMIN_USERNAME:}
 
 knowledge:
   rag:

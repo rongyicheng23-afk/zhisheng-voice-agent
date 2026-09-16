@@ -14,6 +14,8 @@ const Register = () => import('./views/Register.vue')
 const Profile = () => import('./views/Profile.vue')
 const VoicePrintCompare = () => import('./views/VoicePrintCompare.vue')
 const KnowledgeBase = () => import('./views/KnowledgeBase.vue')
+const SystemObservation = () => import('./views/SystemObservation.vue')
+const AdminCenter = () => import('./views/AdminCenter.vue')
 
 const routerHistory = createWebHistory()
 const router = createRouter({
@@ -84,6 +86,16 @@ const router = createRouter({
       path: '/knowledge',
       name: 'KnowledgeBase',
       component: KnowledgeBase
+    },
+    {
+      path: '/system-observation',
+      name: 'SystemObservation',
+      component: SystemObservation
+    },
+    {
+      path: '/admin',
+      name: 'AdminCenter',
+      component: AdminCenter
     },
 
     {

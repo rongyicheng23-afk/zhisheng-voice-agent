@@ -30,6 +30,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/api/speaker/**")
                 .addPathPatterns("/api/meeting/**")
                 .addPathPatterns("/api/knowledge/**")
+                .addPathPatterns("/api/admin/**")
                 .excludePathPatterns(
                         "/user/login",
                         "/user/register",

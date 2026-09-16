@@ -1,6 +1,7 @@
 package com.wc.controller;
 
 import com.wc.entity.UserInfo;
+import com.wc.access.AccessControlService;
 import com.wc.pojo.Result;
 import com.wc.service.UserInfoService;
 import com.wc.utils.JwtUtil;
@@ -24,9 +25,11 @@ import java.util.Map;
 public class AuthUserController {
 
     private final UserInfoService userInfoService;
+    private final AccessControlService accessControl;
 
-    public AuthUserController(UserInfoService userInfoService) {
+    public AuthUserController(UserInfoService userInfoService, AccessControlService accessControl) {
         this.userInfoService = userInfoService;
+        this.accessControl = accessControl;
     }
 
     @PostMapping("/register")
@@ -43,12 +46,13 @@ public class AuthUserController {
             return Result.error("用户名已被占用!");
         }
 
-        userInfoService.registerUser(
+        UserInfo registered = userInfoService.registerUser(
                 username.trim(),
                 Md5Util.getMD5String(password.trim()),
                 StringUtils.hasText(nickname) ? nickname.trim() : username.trim(),
                 StringUtils.hasText(email) ? email.trim() : null
         );
+        accessControl.assignDefaultRole(registered.getId());
         return Result.success();
     }
 

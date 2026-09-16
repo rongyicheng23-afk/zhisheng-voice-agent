@@ -34,6 +34,21 @@ export const uploadKnowledgeDocument = (form: FormData) =>
 export const publishKnowledgeDocument = (documentId: number) =>
   http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/publish`)
 
+export const submitKnowledgeReview = (documentId: number) =>
+  http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/submit-review`)
+
+export const approveKnowledgeDocument = (documentId: number) =>
+  http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/approve`)
+
+export const offlineKnowledgeDocument = (documentId: number) =>
+  http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/offline`)
+
+export const restoreKnowledgeDocumentToDraft = (documentId: number) =>
+  http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/restore-draft`)
+
+export const reindexKnowledgeDocument = (documentId: number) =>
+  http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/reindex`)
+
 export const getKnowledgeDocuments = () =>
   http.get<any, BackendResponse<KnowledgeDocument[]>>('/api/knowledge/documents')
 
