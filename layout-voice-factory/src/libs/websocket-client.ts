@@ -1,4 +1,4 @@
-import { getRuntimeWsBaseUrl } from '@/api'
+import { getRuntimeWsBaseUrl, getRuntimeHttpBaseUrl } from '@/api'
 
 /**
  * WebSocket配置接口
@@ -15,6 +15,10 @@ export interface WebSocketConfig {
   chunk_interval: number
   /** 识别模式：online/offline/2pass */
   mode: string
+  /** 当前实时交互轮次，用于拒收已取消轮次的迟到结果 */
+  turnId?: string
+  /** 生命周期事件，例如 turn.interrupt */
+  event?: string
 }
 
 /**
@@ -30,11 +34,20 @@ export interface WebSocketMessage {
   is_final?: boolean
 }
 
-// 保守优化版实时参数：
-// 1. 保持 60ms 音频帧不变，避免过度增加请求频次
-// 2. 将在线触发间隔从 10 帧降到 5 帧，把上屏粒度从约 600ms 压到约 300ms
+// 60ms PCM frames × 10 match the current model's 600ms online chunk.
+// Do not halve the interval without also adapting the model/VAD frame contract.
 export const REALTIME_CHUNK_SIZE = [5, 10, 5] as const
-export const REALTIME_CHUNK_INTERVAL = 5
+export const REALTIME_CHUNK_INTERVAL = 10
+
+function createTurnId(): string {
+  const cryptoApi = (typeof globalThis !== 'undefined' ? globalThis.crypto : undefined) as
+    (Crypto & { randomUUID?: () => string }) | undefined
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, marker => {
+    const value = Math.floor(Math.random() * 16)
+    return (marker === 'x' ? value : (value & 0x3) | 0x8).toString(16)
+  })
+}
 
 /**
  * WebSocket连接方法类
@@ -46,6 +59,11 @@ export function WebSocketConnectMethod(config: {
   url?: string
 }) {
   let speechSocket: WebSocket | null = null
+  let generation = 0
+  let upstreamReady = false
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let pending: ((result: number) => void) | null = null
+  let activeTurnId: string | null = null
   const msgHandle = config.msgHandle
   const stateHandle = config.stateHandle
 
@@ -53,48 +71,100 @@ export function WebSocketConnectMethod(config: {
     return localStorage.getItem('token') || sessionStorage.getItem('token') || ''
   }
 
-  const resolveUrl = () => {
-    if (config.url) {
-      return config.url
-    }
+  const resolveUrl = () => `${getRuntimeWsBaseUrl()}/ws/funasr`
 
-    const token = resolveStoredToken()
-    const query = token ? `?token=${encodeURIComponent(token)}` : ''
-    const wsBaseUrl = getRuntimeWsBaseUrl()
-    return `${wsBaseUrl}/ws/funasr${query}`
+  const settle = (result: number) => {
+    if (timer !== null) clearTimeout(timer)
+    timer = null
+    const resolve = pending
+    pending = null
+    resolve?.(result)
   }
 
   // 定义开始连接函数
-  const wsStart = function(): number {
-    const Uri = resolveUrl()
-    
-    if (Uri.match(/wss:\S*|ws:\S*/)) {
-    } else {
-      console.error("请检查WebSocket地址正确性")
-      return 0
-    }
-
-    if ('WebSocket' in window) {
-      speechSocket = new WebSocket(Uri)
-      speechSocket.onopen = function(e) { onOpen(e) }
-      speechSocket.onclose = function(e) {
-        onClose(e)
+  const wsStart = async function(options: { saveAudio?: boolean } = {}): Promise<number> {
+    wsStop()
+    const attempt = generation
+    const token = resolveStoredToken()
+    if (!token || !('WebSocket' in window)) return 0
+    const controller = new AbortController()
+    const requestTimeout = setTimeout(() => controller.abort(), 8000)
+    try {
+      const target = new URL(config.url || resolveUrl())
+      const expected = new URL(resolveUrl())
+      if (target.origin !== expected.origin || target.pathname !== expected.pathname || target.search || target.hash) {
+        throw new Error('Invalid realtime endpoint')
       }
-      speechSocket.onmessage = function(e) { onMessage(e) }
-      speechSocket.onerror = function(e) { onError(e) }
-      return 1
-    } else {
-      console.error('当前浏览器不支持 WebSocket')
+      const response = await fetch(`${getRuntimeHttpBaseUrl()}/api/realtime/ticket`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+        cache: 'no-store', signal: controller.signal
+      })
+      if (!response.ok) throw new Error('Ticket unavailable')
+      const payload = await response.json()
+      if (generation !== attempt) return 0
+      const ticket = payload?.data?.ticket
+      if (payload.code !== 200 || payload.data.purpose !== 'funasr' || !/^[A-Za-z0-9_-]{43}$/.test(ticket || '')) {
+        throw new Error('Invalid ticket')
+      }
+      target.searchParams.set('ticket', ticket)
+      if (options.saveAudio === true) target.searchParams.set('save_audio', 'true')
+      return await new Promise<number>(resolve => {
+        pending = resolve
+        const socket = new WebSocket(target.toString())
+        speechSocket = socket
+        let ready = false
+        const current = () => generation === attempt && speechSocket === socket
+        timer = setTimeout(() => {
+          if (!current()) return
+          wsStop()
+          stateHandle?.(2)
+        }, 8000)
+        socket.onopen = () => { /* Wait for the upstream-ready acknowledgement. */ }
+        socket.onmessage = e => {
+          if (!current()) return
+          if (!ready) {
+            try {
+              if (JSON.parse(e.data).event !== 'session.ready') return
+            } catch (_) { return }
+            ready = true
+            upstreamReady = true
+            settle(1)
+            onOpen(e)
+            return
+          }
+          onMessage(e)
+        }
+        socket.onclose = e => { if (current()) { settle(0); upstreamReady = false; speechSocket = null; onClose(e) } }
+        socket.onerror = () => {
+          if (!current()) return
+          wsStop()
+          stateHandle?.(2)
+        }
+      })
+    } catch (_) {
+      // Never log WebSocket/error objects: they can contain URL tickets.
+      if (generation === attempt) { wsStop(); stateHandle?.(2) }
       return 0
+    } finally {
+      clearTimeout(requestTimeout)
     }
   }
 
   // 定义停止连接函数
   const wsStop = function(): void {
+    if (activeTurnId && upstreamReady && speechSocket?.readyState === WebSocket.OPEN) {
+      try {
+        speechSocket.send(JSON.stringify({ event: 'turn.interrupt', turnId: activeTurnId }))
+      } catch (_) { /* The close below is the final cancellation boundary. */ }
+    }
+    generation += 1
+    upstreamReady = false
+    settle(0)
     if (speechSocket != undefined) {
       speechSocket.close()
       speechSocket = null
     }
+    activeTurnId = null
   }
 
   // 定义发送数据函数
@@ -103,20 +173,27 @@ export function WebSocketConnectMethod(config: {
       return
     }
     
-    if (speechSocket.readyState === 1) { // 0:CONNECTING, 1:OPEN, 2:CLOSING, 3:CLOSED
+    if (upstreamReady && speechSocket.readyState === 1) { // 0:CONNECTING, 1:OPEN, 2:CLOSING, 3:CLOSED
+      if (speechSocket.bufferedAmount > 1024 * 1024) {
+        wsStop()
+        stateHandle?.(2)
+        return
+      }
       speechSocket.send(oneData)
     }
   }
 
   // WebSocket连接中的消息与状态响应
   function onOpen(e: Event): void {
+    activeTurnId = createTurnId()
     // 发送json
     const request: WebSocketConfig = {
       "chunk_size": [...REALTIME_CHUNK_SIZE],
       "wav_name": "microphone",
       "is_speaking": true,
       "chunk_interval": REALTIME_CHUNK_INTERVAL,
-      "mode": "2pass"
+      "mode": "2pass",
+      "turnId": activeTurnId
     }
     
     speechSocket?.send(JSON.stringify(request))
@@ -124,6 +201,7 @@ export function WebSocketConnectMethod(config: {
   }
 
   function onClose(e: CloseEvent): void {
+    activeTurnId = null
     stateHandle?.(1) // 1: 连接关闭
   }
 
@@ -131,21 +209,16 @@ export function WebSocketConnectMethod(config: {
     msgHandle?.(e)
   }
 
-  function onError(e: Event): void {
-    console.error("连接错误:", e)
-    stateHandle?.(2) // 2: 连接错误
-  }
-
   // 检查连接状态
   const isConnected = function(): boolean {
-    return speechSocket?.readyState === WebSocket.OPEN
+    return upstreamReady && speechSocket?.readyState === WebSocket.OPEN
   }
 
   // 获取连接状态信息
   const getConnectionStatus = function() {
     return {
       connected: isConnected(),
-      readyState: speechSocket?.readyState || null,
+      readyState: speechSocket?.readyState ?? null,
       url: resolveUrl()
     }
   }
@@ -172,22 +245,8 @@ export class WebSocketClient {
     this.wsConnectMethod = WebSocketConnectMethod(config || {})
   }
 
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const result = this.wsConnectMethod.wsStart()
-      if (result === 1) {
-        // 连接成功，但需要等待onOpen回调
-        setTimeout(() => {
-          if (this.isConnected()) {
-            resolve()
-          } else {
-            reject(new Error('连接超时'))
-          }
-        }, 1000)
-      } else {
-        reject(new Error('连接失败'))
-      }
-    })
+  async connect(): Promise<void> {
+    if (await this.wsConnectMethod.wsStart() !== 1) throw new Error('连接失败')
   }
 
   sendConfig(config: WebSocketConfig): void {

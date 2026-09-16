@@ -179,15 +179,11 @@ public class UserTtsHistoryServiceImpl extends ServiceImpl<UserTtsHistoryMapper,
     }
 
     private void validateText(String text) {
-        if (!StringUtils.hasText(text)) {
-            throw new IllegalArgumentException("请输入要合成的文本");
-        }
+        com.wc.tts.model.TtsRequestLimits.validateText(text);
     }
 
     private void validateAudio(MultipartFile audio) {
-        if (audio == null || audio.isEmpty()) {
-            throw new IllegalArgumentException("请上传参考音频");
-        }
+        com.wc.tts.model.TtsRequestLimits.validateAudio(audio);
     }
 
     private UserTtsHistory createPendingHistory(

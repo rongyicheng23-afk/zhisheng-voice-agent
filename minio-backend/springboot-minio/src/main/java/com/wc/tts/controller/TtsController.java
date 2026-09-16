@@ -51,10 +51,12 @@ public class TtsController {
                     language,
                     format
             ));
+        } catch (com.wc.tts.model.TtsUpstreamException ex) {
+            return new R(ex.getCode(), ex.getMessage(), null);
         } catch (IllegalArgumentException ex) {
             return new R(400, ex.getMessage(), null);
         } catch (Exception ex) {
-            return new R(500, ex.getMessage(), null);
+            return new R(500, "语音合成或结果保存失败，请查看历史记录后再重试", null);
         }
     }
 

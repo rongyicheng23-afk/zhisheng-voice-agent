@@ -34,7 +34,7 @@ public class AuthUserController {
                                  String password,
                                  String nickname,
                                  String email) {
-        if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
+        if (!StringUtils.hasText(username) || !StringUtils.hasText(password) || password.length() > 256 || username.length() > 64) {
             return Result.error("用户名和密码不能为空");
         }
 
@@ -45,7 +45,7 @@ public class AuthUserController {
 
         userInfoService.registerUser(
                 username.trim(),
-                Md5Util.getMD5String(password.trim()),
+                com.wc.utils.PasswordHash.encode(password.trim()),
                 StringUtils.hasText(nickname) ? nickname.trim() : username.trim(),
                 StringUtils.hasText(email) ? email.trim() : null
         );
@@ -54,17 +54,24 @@ public class AuthUserController {
 
     @PostMapping("/login")
     public Result<String> login(String username, String password) {
-        if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
+        if (!StringUtils.hasText(username) || !StringUtils.hasText(password) || password.length() > 256 || username.length() > 64) {
             return Result.error("用户名和密码不能为空");
         }
 
         UserInfo loginUser = userInfoService.getUserByUsername(username.trim());
         if (loginUser == null) {
-            return Result.error("用户名未注册!");
+            return Result.error("用户名或密码错误");
         }
 
-        if (!Md5Util.getMD5String(password.trim()).equals(loginUser.getPassword())) {
-            return Result.error("用户密码错误！");
+        if (!com.wc.utils.PasswordHash.matches(password.trim(), loginUser.getPassword())) {
+            return Result.error("用户名或密码错误");
+        }
+        if (com.wc.utils.PasswordHash.legacy(loginUser.getPassword())) {
+            // Upgrade only after successful authentication; do not reset existing accounts.
+            UserInfo upgraded = new UserInfo();
+            upgraded.setId(loginUser.getId());
+            upgraded.setPassword(com.wc.utils.PasswordHash.encode(password.trim()));
+            userInfoService.updateById(upgraded);
         }
 
         Map<String, Object> claims = new HashMap<>();

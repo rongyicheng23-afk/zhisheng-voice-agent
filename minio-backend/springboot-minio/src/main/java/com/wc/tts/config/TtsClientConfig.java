@@ -28,6 +28,7 @@ public class TtsClientConfig {
     @Bean
     public OkHttpClient ttsOkHttpClient() {
         return new OkHttpClient.Builder()
+                .retryOnConnectionFailure(false)
                 .connectTimeout(Duration.ofMillis(ttsProperties.getConnectTimeoutMs()))
                 .readTimeout(Duration.ofMillis(ttsProperties.getReadTimeoutMs()))
                 .build();

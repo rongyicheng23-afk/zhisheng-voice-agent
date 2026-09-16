@@ -6,6 +6,9 @@ import java.util.Date;
 import java.util.List;
 
 public class UserMeetingRevisionVO {
+    private List<com.wc.meeting.MeetingSpeakerOrganizer.SpeakerSummary> speakerSummaries;
+    public List<com.wc.meeting.MeetingSpeakerOrganizer.SpeakerSummary> getSpeakerSummaries() { return speakerSummaries; }
+    public void setSpeakerSummaries(List<com.wc.meeting.MeetingSpeakerOrganizer.SpeakerSummary> value) { speakerSummaries = value; }
 
     private Integer id;
     private Integer meetingId;

@@ -32,10 +32,10 @@
             <span class="meta-chip" v-if="detail.decisionInsights?.length">结论分析 {{ detail.decisionInsights.length }} 条</span>
           </div>
           <div class="toolbar-actions">
-            <el-button v-if="!editMode" type="primary" @click="enterEditMode">
+            <el-button v-if="!editMode" type="primary" :disabled="detail.status !== 'SUCCESS'" @click="enterEditMode">
               开始校正
             </el-button>
-            <el-button v-else @click="cancelEditMode">
+            <el-button v-else :disabled="saveLoading" @click="cancelEditMode">
               取消校正
             </el-button>
             <el-button v-if="editMode" type="success" :loading="saveLoading" @click="saveCorrection">
@@ -117,7 +117,7 @@
         <section class="analysis-section" v-if="!editMode && (detail.roleInsights?.length || detail.todoChains?.length || detail.decisionInsights?.length)">
           <article class="content-card analysis-card" v-if="detail.roleInsights?.length">
             <div class="structured-card-head">
-              <span>发言角色分析</span>
+              <span>发言角色推测（待核对）</span>
               <small>从发言块里识别主讲、提问、回应与任务承接关系。</small>
             </div>
             <div class="analysis-stack">
@@ -161,8 +161,8 @@
 
           <article class="content-card analysis-card" v-if="detail.decisionInsights?.length">
             <div class="structured-card-head">
-              <span>结论与待确认事项</span>
-              <small>把已明确的结论和仍需确认的事项拆开看，方便会后推进。</small>
+              <span>结论候选与待确认事项</span>
+              <small>按原文关键词提取，可能包含否定或讨论中的方案，请试听核对。</small>
             </div>
             <div class="analysis-stack">
               <article
@@ -180,6 +180,32 @@
                 <small v-if="decision.sourceSpeaker">来源发言人：{{ decision.sourceSpeaker }}</small>
               </article>
             </div>
+          </article>
+        </section>
+
+        <section class="content-card" v-if="!editMode && detail.speakerSummaries?.length">
+          <div class="section-head">
+            <span>按发言人整理 · 原文依据</span>
+            <small>分组与人工名称仅用于本场会议；观点为原文摘录，结论和待办均需核对，发言人不自动等于负责人。</small>
+          </div>
+          <article v-for="group in detail.speakerSummaries" :key="group.groupKey" class="speaker-evidence-card">
+            <h3>{{ group.speakerName }} · {{ group.segmentCount }} 个片段</h3>
+            <p>{{ group.identityNotice }}</p>
+            <details v-for="section in [
+              { title: '观点与发言原文', items: group.statements },
+              { title: '结论候选', items: group.decisionCandidates },
+              { title: '待办候选（负责人及期限需核对）', items: group.todoCandidates }
+            ]" :key="section.title">
+              <summary>{{ section.title }}（{{ section.items.length }}）</summary>
+              <p v-if="!section.items.length">未提取到相关原文</p>
+              <div v-for="(evidence, index) in section.items" :key="evidence.segmentId + '-' + index" class="speaker-evidence-quote">
+                <p>{{ evidence.text }}</p>
+                <el-button size="small" :disabled="!detail.hasRawAudio || evidence.startMs == null"
+                  @click="seekToTime(evidence.startMs)">
+                  原文片段 #{{ evidence.segmentId }} · {{ formatRange(evidence.startMs, evidence.endMs) }} · 试听
+                </el-button>
+              </div>
+            </details>
           </article>
         </section>
 
@@ -307,6 +333,7 @@
               <p>你可以修改标题、摘要、关键词、待办、全文，以及下方每个发言片段的说话人与文本。保存后系统会重新生成发言人纪要和整理后发言块。</p>
             </div>
             <el-tag type="warning" effect="plain">自动结果待确认</el-tag>
+            <el-button :disabled="saveLoading" @click="downloadCorrectionDraft">下载校正草稿</el-button>
           </div>
           <el-form label-position="top" class="editor-form">
             <el-form-item label="纪要标题">
@@ -461,11 +488,33 @@
         <section class="content-card" v-if="detail.speakerSegments?.length">
           <div class="audio-section-head">
             <span>发言片段时间轴</span>
-            <small>{{ editMode ? '可逐条修改发言人与片段文本' : '点击卡片或“跳转原音”可联动原始音频' }}</small>
+            <small>{{ editMode ? '可逐条修改发言人与片段文本' : '匿名标签仅用于本场会议分组；档案匹配需人工确认，不代表身份已核实' }}</small>
           </div>
+          <div class="meeting-segment-tools">
+            <el-input v-model="segmentQuery" clearable placeholder="搜索片段文本或发言人" aria-label="搜索发言片段" />
+            <el-select v-model="speakerFilter" clearable placeholder="全部发言人" aria-label="筛选发言人">
+              <el-option v-for="group in speakerGroups" :key="group.name" :value="group.name" :label="`${group.name}（${group.count} 段）`" />
+            </el-select>
+            <small>显示 {{ visibleSegments.length }} / {{ segmentEditorList.length }} 段，筛选不会删除或漏存其他片段。</small>
+          </div>
+          <fieldset v-if="editMode" class="meeting-bulk-editor" :disabled="saveLoading">
+            <legend>批量校正发言组</legend>
+            <p>重命名整个组；填写已有组名可合并误分组。只修改本场会议草稿，不代表声纹身份认证。</p>
+            <div class="meeting-segment-tools">
+              <el-select v-model="bulkSource" :disabled="saveLoading" placeholder="选择要校正的组" aria-label="要校正的发言组">
+                <el-option v-for="group in speakerGroups" :key="group.name" :value="group.name" :label="`${group.name}（${group.count} 段）`" />
+              </el-select>
+              <el-input v-model="bulkTarget" :disabled="saveLoading" maxlength="64" placeholder="新名称或已有组名" aria-label="校正后的发言组名" />
+              <el-button :disabled="saveLoading || !bulkAffectedCount || !bulkTarget.trim()" @click="applyBulkSpeaker">
+                应用到草稿（{{ bulkAffectedCount }} 段）
+              </el-button>
+            </div>
+            <small>作用于该组全部片段，不受上方搜索影响。确认后点击“保存校正”；“取消校正”可放弃本次所有草稿改动。</small>
+          </fieldset>
+          <p v-if="!visibleSegments.length">没有符合条件的片段，请清除搜索或发言人筛选。</p>
           <div class="segment-list">
             <article
-              v-for="segment in segmentEditorList"
+              v-for="segment in visibleSegments"
               :key="segment.id || segment.segmentIndex"
               class="segment-item segment-item--clickable"
               :class="{ 'segment-item--active': activeSegmentId === segment.id }"
@@ -478,16 +527,17 @@
                 </div>
                 <div class="segment-score">
                   <span v-if="segment.matchScore !== undefined && segment.matchScore !== null">
-                    匹配度 {{ formatPercent(segment.matchScore) }}
+                    声学相似度 {{ Number(segment.matchScore).toFixed(3) }}（非身份概率）
                   </span>
                   <el-button type="primary" link @click.stop="seekToTime(segment.startMs)">跳转原音</el-button>
                 </div>
               </div>
               <template v-if="editMode">
                 <div class="segment-editor-grid" @click.stop>
-                  <el-input v-model="segment.speakerName" maxlength="64" placeholder="请输入发言人名称" />
+                  <el-input v-model="segment.speakerName" :disabled="saveLoading" maxlength="64" placeholder="请输入发言人名称" />
                   <el-input
                     v-model="segment.transcript"
+                    :disabled="saveLoading"
                     type="textarea"
                     :rows="3"
                     placeholder="请输入该片段的校正文本"
@@ -576,6 +626,10 @@ export default defineComponent({
     const detailLoading = ref(false)
     const saveLoading = ref(false)
     const editMode = ref(false)
+    const segmentQuery = ref('')
+    const speakerFilter = ref('')
+    const bulkSource = ref('')
+    const bulkTarget = ref('')
     const historyDrawerVisible = ref(false)
     const rawAudioUrl = ref('')
     const rawAudioRef = ref<HTMLAudioElement | null>(null)
@@ -625,6 +679,7 @@ export default defineComponent({
     })
 
     const correctionForm = reactive({
+      correctionToken: '',
       title: '',
       summaryText: '',
       keywordsText: '',
@@ -700,7 +755,7 @@ export default defineComponent({
       const rowHeight = 82
       const rowGap = 14
       const rulerHeight = 44
-      return (detail.speakerSegments || []).map(segment => {
+      return segmentEditorList.value.map(segment => {
         const startMs = segment.startMs || 0
         const endMs = Math.max(segment.endMs || startMs, startMs + 1)
         const startPx = Math.max(0, Math.round((startMs / timelineTotalMs.value) * timelineCanvasWidth.value))
@@ -770,7 +825,7 @@ export default defineComponent({
     })
     const timelineLegend = computed(() => {
       const uniqueNames = new Map<string, Record<string, string>>()
-      for (const segment of detail.speakerSegments || []) {
+      for (const segment of segmentEditorList.value) {
         const name = segment.speakerName || '未知发言人'
         if (!uniqueNames.has(name)) {
           uniqueNames.set(name, speakerStyle(name))
@@ -788,6 +843,45 @@ export default defineComponent({
       return activeSegment?.id
     })
     const segmentEditorList = computed(() => (editMode.value ? correctionForm.speakerSegments : (detail.speakerSegments || [])))
+    const speakerName = (segment: MeetingSegmentItem) => (segment.speakerName || '').trim() || '未知发言人'
+    const speakerGroups = computed(() => {
+      const counts = new Map<string, number>()
+      for (const segment of segmentEditorList.value) {
+        const name = speakerName(segment)
+        counts.set(name, (counts.get(name) || 0) + 1)
+      }
+      return Array.from(counts, ([name, count]) => ({ name, count }))
+    })
+    const visibleSegments = computed(() => {
+      const query = segmentQuery.value.trim().toLocaleLowerCase()
+      return segmentEditorList.value.filter(segment =>
+        (!speakerFilter.value || speakerName(segment) === speakerFilter.value) &&
+        (!query || `${speakerName(segment)} ${segment.transcript || ''}`.toLocaleLowerCase().includes(query)))
+    })
+    const bulkAffectedCount = computed(() => correctionForm.speakerSegments.filter(segment => speakerName(segment) === bulkSource.value).length)
+    const applyBulkSpeaker = () => {
+      if (!editMode.value || saveLoading.value || !ensureDetailAccess()) return
+      const target = bulkTarget.value.trim()
+      if (!target || target.length > 64 || !bulkAffectedCount.value) {
+        ElMessage.warning('请选择发言组并填写 1–64 字符的新名称')
+        return
+      }
+      if (target === bulkSource.value) {
+        ElMessage.info('名称未变化')
+        return
+      }
+      const count = bulkAffectedCount.value
+      for (const segment of correctionForm.speakerSegments) {
+        if (speakerName(segment) === bulkSource.value) {
+          segment.speakerName = target
+          segment.matchScore = undefined
+        }
+      }
+      if (speakerFilter.value === bulkSource.value) speakerFilter.value = target
+      bulkSource.value = ''
+      bulkTarget.value = ''
+      ElMessage.success(`已校正 ${count} 段草稿，点击“保存校正”后生效`)
+    }
     const selectedLeftRevision = computed(() => revisionList.value.find(item => item.id === leftRevisionId.value) || revisionList.value[0] || null)
     const selectedRightRevision = computed(() => revisionList.value.find(item => item.id === rightRevisionId.value) || revisionList.value[revisionList.value.length - 1] || null)
 
@@ -822,6 +916,8 @@ export default defineComponent({
     const assignDetail = (data: MeetingHistoryItem) => {
       Object.assign(detail, {
         ...data,
+        correctionToken: data.correctionToken || '',
+        speakerSummaries: Array.isArray(data.speakerSummaries) ? data.speakerSummaries : [],
         keywords: Array.isArray(data.keywords) ? data.keywords : [],
         todos: Array.isArray(data.todos) ? data.todos : [],
         structuredSections: Array.isArray(data.structuredSections) ? data.structuredSections : [],
@@ -861,7 +957,11 @@ export default defineComponent({
     }
 
     const hydrateCorrectionForm = () => {
+      bulkSource.value = ''
+      bulkTarget.value = ''
+      speakerFilter.value = ''
       correctionForm.title = detail.title || ''
+      correctionForm.correctionToken = detail.correctionToken || ''
       correctionForm.summaryText = detail.summaryText || ''
       correctionForm.keywordsText = (detail.keywords || []).join('、')
       correctionForm.todosText = (detail.todos || []).join('\n')
@@ -1161,17 +1261,26 @@ export default defineComponent({
       if (!ensureDetailAccess()) {
         return
       }
+      if (detail.status !== 'SUCCESS') {
+        ElMessage.warning('请等待纪要处理成功后再校正')
+        return
+      }
+      if (!detail.correctionToken) {
+        ElMessage.warning('请重新打开纪要以获取最新校正版本')
+        return
+      }
       hydrateCorrectionForm()
       editMode.value = true
     }
 
     const cancelEditMode = () => {
+      if (saveLoading.value) return
       editMode.value = false
       hydrateCorrectionForm()
     }
 
     const saveCorrection = async () => {
-      if (!ensureDetailAccess()) {
+      if (saveLoading.value || !editMode.value || !ensureDetailAccess()) {
         return
       }
       if (!correctionForm.title.trim()) {
@@ -1181,11 +1290,14 @@ export default defineComponent({
       saveLoading.value = true
       try {
         const payload: MeetingCorrectionPayload = {
+          correctionToken: correctionForm.correctionToken,
           title: correctionForm.title.trim(),
           summaryText: correctionForm.summaryText.trim(),
           keywords: splitKeywords(correctionForm.keywordsText),
           todos: splitTodos(correctionForm.todosText),
-          fullTranscript: correctionForm.fullTranscript.trim(),
+          // Omit unchanged full text so the backend can rebuild it from corrected segments.
+          fullTranscript: correctionForm.fullTranscript.trim() === (detail.fullTranscript || '').trim()
+            ? undefined : correctionForm.fullTranscript.trim(),
           speakerSegments: correctionForm.speakerSegments.map(segment => ({
             id: segment.id,
             speakerName: (segment.speakerName || '').trim(),
@@ -1197,9 +1309,13 @@ export default defineComponent({
           throw new Error(res.msg || '保存校正失败')
         }
         assignDetail(res.data)
-        await loadRevisions()
         editMode.value = false
         ElMessage.success('校正内容已保存')
+        try {
+          await loadRevisions()
+        } catch {
+          ElMessage.warning('校正已保存，但版本列表刷新失败，请稍后重新打开详情查看')
+        }
       } catch (error: any) {
         if (error?.response?.status === 401) {
           handleUnauthorized()
@@ -1209,6 +1325,20 @@ export default defineComponent({
       } finally {
         saveLoading.value = false
       }
+    }
+
+    const downloadCorrectionDraft = () => {
+      if (!editMode.value || saveLoading.value) return
+      const blob = new Blob([JSON.stringify({ meetingId: meetingId.value, ...correctionForm }, null, 2)],
+        { type: 'application/json;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `meeting-${meetingId.value}-correction-draft.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
     }
 
     const openHistoryDrawer = () => {
@@ -1254,6 +1384,7 @@ export default defineComponent({
       exportDialogVisible,
       exportTemplateConfig,
       correctionForm,
+      downloadCorrectionDraft,
       revisionList,
       leftRevisionId,
       rightRevisionId,
@@ -1275,6 +1406,14 @@ export default defineComponent({
       activeBlockIndex,
       activeSegmentId,
       segmentEditorList,
+      segmentQuery,
+      speakerFilter,
+      speakerGroups,
+      visibleSegments,
+      bulkSource,
+      bulkTarget,
+      bulkAffectedCount,
+      applyBulkSpeaker,
       previewRawAudio,
       downloadRawAudio,
       exportMeeting,
@@ -1299,6 +1438,34 @@ export default defineComponent({
 </script>
 
 <style scoped>
+.speaker-evidence-card {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid #dce4ed;
+  border-radius: 12px;
+  overflow-wrap: anywhere;
+}
+.speaker-evidence-card summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.speaker-evidence-quote { margin: 8px 0; padding: 12px; background: #f5f7fa; border-radius: 8px; }
+.speaker-evidence-quote p { white-space: pre-wrap; }
+.meeting-segment-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+  align-items: center;
+}
+.meeting-segment-tools > .el-input,
+.meeting-segment-tools > .el-select {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.meeting-bulk-editor {
+  border: 1px solid #94a3b8;
+  border-radius: 10px;
+  margin: 16px 0;
+  padding: 16px;
+}
 .meeting-detail-page {
   padding-bottom: 24px;
 }

@@ -149,10 +149,12 @@ public class MeetingNoteController {
     ) {
         try {
             return R.OK(userMeetingNoteService.applyCorrection(meetingId, currentUserId(), request));
+        } catch (com.wc.meeting.MeetingCorrectionConflict ex) {
+            return new R(409, ex.getMessage(), null);
         } catch (IllegalArgumentException ex) {
             return new R(400, ex.getMessage(), null);
         } catch (Exception ex) {
-            return new R(500, ex.getMessage(), null);
+            return new R(500, "校正保存失败，请重新加载纪要核对后重试", null);
         }
     }
 

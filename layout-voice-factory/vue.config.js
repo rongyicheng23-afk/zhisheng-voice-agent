@@ -1,5 +1,8 @@
 module.exports = {
   lintOnSave: false,
+  // Vue CLI 4 uses webpack 4, which cannot parse modern syntax shipped by
+  // recent Element Plus releases unless the dependency is transpiled first.
+  transpileDependencies: ['element-plus'],
   chainWebpack: config => {
     config
       .plugin('html')

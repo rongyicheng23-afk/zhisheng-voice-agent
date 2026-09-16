@@ -34,7 +34,7 @@
               文本内容
             </h4>
             <div class="panel-meta">
-              <span>字数 {{ textLength }}</span>
+              <span>字符数 {{ textLength }} / 500</span>
               <span v-if="audioFileName">参考音频：{{ audioFileName }}</span>
             </div>
           </div>
@@ -66,7 +66,7 @@
             >
               <el-icon class="upload-icon"><UploadFilled /></el-icon>
               <div class="upload-title">上传参考说话人音频</div>
-              <div class="upload-tip">支持 WAV、MP3，建议人声清晰，时长 3 秒以上，文件不超过 50MB</div>
+              <div class="upload-tip">支持 WAV、MP3，建议人声清晰，时长 3 秒以上；文件须小于 20 MB，完整请求最多 20 MB</div>
             </el-upload>
             <div class="file-meta" :class="{ 'file-meta--empty': !audioFileName }">
               {{ audioFileName || '尚未选择参考音频' }}
@@ -251,7 +251,7 @@ export default defineComponent({
     ]
     const quickStartTips = ['参考音频建议大于 3 秒', '先登录后才能保存历史', '生成结果可从历史中再次下载']
 
-    const textLength = computed(() => text.value.trim().length)
+    const textLength = computed(() => Array.from(text.value.trim()).length)
 
     const formatFileSize = (size: number) => {
       if (!size || size <= 0) {
@@ -399,8 +399,8 @@ export default defineComponent({
       if (!raw) {
         return
       }
-      if (raw.size > 50 * 1024 * 1024) {
-        ElMessage.error('文件大小不能超过50MB')
+      if (raw.size === 0 || raw.size >= 20 * 1024 * 1024) {
+        ElMessage.error('请选择非空且小于20 MB的参考音频，完整请求最多20 MB')
         audioFile.value = null
         audioFileName.value = ''
         audioFileSize.value = 0
@@ -417,6 +417,11 @@ export default defineComponent({
     }
 
     const convertToVoice = async () => {
+      if (status.value === 'processing') return
+      if (textLength.value > 500) {
+        ElMessage.warning('文本不能超过500字符，请按语义分段提交')
+        return
+      }
       if (!canConvert.value) {
         ElMessage.warning('请填写完整信息并上传音频文件')
         return

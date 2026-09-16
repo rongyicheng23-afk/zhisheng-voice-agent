@@ -5,9 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.wc.entity.UserAudioHistory;
 import com.wc.entity.UserInfo;
 import com.wc.funasr.config.FunasrProperties;
+import com.wc.realtime.TurnLifecycle;
 import com.wc.service.UserAudioHistoryService;
 import com.wc.service.UserInfoService;
-import com.wc.utils.AuthContextUtil;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.socket.BinaryMessage;
@@ -40,6 +40,11 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
     private final UserAudioHistoryService userAudioHistoryService;
     private final ObjectMapper objectMapper;
     private final Map<String, ProxySessionContext> contextMap = new ConcurrentHashMap<>();
+    private final java.util.concurrent.ScheduledExecutorService reaper = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "asr-session-expiry");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public FunasrRealtimeProxyHandler(
             HttpClient funasrHttpClient,
@@ -53,13 +58,36 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         this.userInfoService = userInfoService;
         this.userAudioHistoryService = userAudioHistoryService;
         this.objectMapper = objectMapper;
+        reaper.scheduleWithFixedDelay(() -> {
+            for (ProxySessionContext context : contextMap.values()) {
+                long now = System.nanoTime();
+                if (now - context.lastActivity > java.util.concurrent.TimeUnit.SECONDS.toNanos(30)
+                        || now - context.created > java.util.concurrent.TimeUnit.MINUTES.toNanos(30)) {
+                    terminate(context, "实时会话已超时");
+                }
+            }
+        }, 5, 5, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    @jakarta.annotation.PreDestroy
+    public void shutdown() {
+        reaper.shutdownNow();
+        for (ProxySessionContext context : contextMap.values()) terminate(context, "服务正在关闭");
+    }
+
+    private void terminate(ProxySessionContext context, String reason) {
+        contextMap.remove(context.frontSession.getId(), context);
+        try { finishContext(context, reason); } catch (Exception ignored) { }
+        try { if (context.frontSession.isOpen()) context.frontSession.close(CloseStatus.SERVER_ERROR.withReason(reason)); }
+        catch (Exception ignored) { }
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         Integer userId;
         try {
-            userId = requiredAuthenticatedUserId(session.getUri());
+            userId = (Integer) session.getAttributes().get("realtimeUserId");
+            if (userId == null) throw new IllegalArgumentException("ticket required");
         } catch (IllegalArgumentException ex) {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("auth invalid"));
             return;
@@ -72,12 +100,18 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         }
 
         String queryMode = queryParam(session.getUri(), "mode");
-        UserAudioHistory history = userAudioHistoryService.createPendingStreamHistory(
-                userId,
-                StringUtils.hasText(queryMode) ? queryMode : "2pass"
-        );
-
-        ProxySessionContext context = new ProxySessionContext(session, userId, history.getId(), history.getFunasrMode());
+        String mode = StringUtils.hasText(queryMode) ? queryMode : "2pass";
+        boolean saveAudio = "true".equals(queryParam(session.getUri(), "save_audio"));
+        ProxySessionContext context;
+        synchronized (contextMap) {
+            if (contextMap.size() >= 20 || contextMap.values().stream().filter(c -> userId.equals(c.userId)).count() >= 2) {
+                session.close(CloseStatus.POLICY_VIOLATION.withReason("实时连接数已达上限"));
+                return;
+            }
+            UserAudioHistory history = saveAudio ? userAudioHistoryService.createPendingStreamHistory(userId, mode) : null;
+            context = new ProxySessionContext(session, userId, history == null ? null : history.getId(), mode);
+            contextMap.put(session.getId(), context);
+        }
         try {
             WebSocket funasrSocket = funasrHttpClient.newWebSocketBuilder()
                     .connectTimeout(Duration.ofMillis(funasrProperties.getConnectTimeoutMs()))
@@ -85,20 +119,16 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
                     .buildAsync(URI.create(funasrProperties.getWsUrl()), new FunasrServerListener(context))
                     .join();
             context.setFunasrSocket(funasrSocket);
-            contextMap.put(session.getId(), context);
+            if (context.finished.get() || !session.isOpen()) {
+                funasrSocket.abort();
+                terminate(context, "连接已关闭");
+                return;
+            }
+            // Browser upgrade can complete before the upstream model connects.
+            // Only accept recording after this explicit readiness acknowledgement.
+            session.sendMessage(new TextMessage("{\"event\":\"session.ready\"}"));
         } catch (Exception ex) {
-            userAudioHistoryService.finishStreamHistory(
-                    history.getId(),
-                    userId,
-                    context.resolveFilename(),
-                    "application/octet-stream",
-                    new byte[0],
-                    context.getFunasrMode(),
-                    "",
-                    "[]",
-                    "连接 FunASR WebSocket 失败: " + ex.getMessage()
-            );
-            session.close(CloseStatus.SERVER_ERROR.withReason("FunASR connect failed"));
+            terminate(context, "连接语音识别服务失败");
         }
     }
 
@@ -108,21 +138,31 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         if (context == null || context.getFunasrSocket() == null) {
             return;
         }
-        captureClientConfig(context, message.getPayload());
-        context.getFunasrSocket().sendText(message.getPayload(), true).join();
+        if (message.getPayloadLength() > 16384) { terminate(context, "配置消息过大"); return; }
+        context.lastActivity = System.nanoTime();
+        String upstreamPayload = captureClientConfig(context, message.getPayload());
+        if (upstreamPayload == null) {
+            return;
+        }
+        context.getFunasrSocket().sendText(upstreamPayload, true)
+                .orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).join();
     }
 
     @Override
     protected void handleBinaryMessage(WebSocketSession session, BinaryMessage message) throws Exception {
         ProxySessionContext context = contextMap.get(session.getId());
-        if (context == null || context.getFunasrSocket() == null) {
+        if (context == null || context.getFunasrSocket() == null || !context.acceptsMessages()) {
             return;
         }
         ByteBuffer payload = message.getPayload().asReadOnlyBuffer();
         byte[] bytes = new byte[payload.remaining()];
+        if (bytes.length == 0 || bytes.length > 65536 || bytes.length % 2 != 0) {
+            terminate(context, "音频帧格式或大小不受支持"); return;
+        }
         payload.get(bytes);
-        context.appendAudio(bytes);
-        context.getFunasrSocket().sendBinary(ByteBuffer.wrap(bytes), true).join();
+        if (!context.appendAudio(bytes)) { terminate(context, "单次实时音频已达20 MB上限，请分次录音"); return; }
+        context.lastActivity = System.nanoTime();
+        context.getFunasrSocket().sendBinary(ByteBuffer.wrap(bytes), true).orTimeout(5, java.util.concurrent.TimeUnit.SECONDS).join();
     }
 
     @Override
@@ -132,24 +172,61 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) throws Exception {
-        finishContext(contextMap.remove(session.getId()), exception.getMessage());
+        finishContext(contextMap.remove(session.getId()), "实时连接异常");
         if (session.isOpen()) {
             session.close(CloseStatus.SERVER_ERROR.withReason("proxy error"));
         }
     }
 
-    private void captureClientConfig(ProxySessionContext context, String payload) {
+    private String captureClientConfig(ProxySessionContext context, String payload) throws Exception {
+        JsonNode jsonNode;
         try {
-            JsonNode jsonNode = objectMapper.readTree(payload);
-            String wavName = jsonNode.path("wav_name").asText("");
-            if (StringUtils.hasText(wavName)) {
-                context.setWavName(wavName);
-            }
-            String mode = jsonNode.path("mode").asText("");
-            if (StringUtils.hasText(mode)) {
-                context.setFunasrMode(mode);
-            }
-        } catch (Exception ignored) {
+            jsonNode = objectMapper.readTree(payload);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ignored) {
+            return payload;
+        }
+        if (!jsonNode.isObject()) return payload;
+        String event = jsonNode.path("event").asText("");
+        String turnId = jsonNode.path("turnId").asText("");
+        if ("turn.interrupt".equals(event)) {
+            interruptTurn(context, turnId);
+            return null;
+        }
+        if (context.startTurn(turnId)) sendLifecycleEvent(context, "turn.start");
+        String wavName = jsonNode.path("wav_name").asText("");
+        if (StringUtils.hasText(wavName)) context.setWavName(wavName);
+        String mode = jsonNode.path("mode").asText("");
+        if (StringUtils.hasText(mode)) context.setFunasrMode(mode);
+        com.fasterxml.jackson.databind.node.ObjectNode upstream =
+                (com.fasterxml.jackson.databind.node.ObjectNode) jsonNode;
+        upstream.remove("turnId");
+        upstream.remove("event");
+        return objectMapper.writeValueAsString(upstream);
+    }
+
+    private void interruptTurn(ProxySessionContext context, String turnId) throws Exception {
+        if (!context.interruptTurn(turnId)) {
+            return;
+        }
+        WebSocket funasrSocket = context.getFunasrSocket();
+        if (funasrSocket != null) {
+            funasrSocket.abort();
+        }
+        sendLifecycleEvent(context, "turn.cancelled");
+    }
+
+    private void sendLifecycleEvent(ProxySessionContext context, String event) throws Exception {
+        WebSocketSession frontSession = context.getFrontSession();
+        if (!frontSession.isOpen()) {
+            return;
+        }
+        String payload = objectMapper.writeValueAsString(Map.of(
+                "event", event,
+                "sessionId", frontSession.getId(),
+                "turnId", context.getTurnId()
+        ));
+        synchronized (frontSession) {
+            frontSession.sendMessage(new TextMessage(payload));
         }
     }
 
@@ -161,12 +238,13 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         WebSocket funasrSocket = context.getFunasrSocket();
         if (funasrSocket != null) {
             try {
-                funasrSocket.sendClose(WebSocket.NORMAL_CLOSURE, "done").join();
+                funasrSocket.sendClose(WebSocket.NORMAL_CLOSURE, "done").orTimeout(1, java.util.concurrent.TimeUnit.SECONDS).join();
             } catch (Exception ex) {
                 funasrSocket.abort();
             }
         }
 
+        if (context.getHistoryId() == null) return;
         String rawResult = objectMapper.writeValueAsString(context.getServerMessages());
         String transcription = extractTextFromServerMessages(context.getServerMessages());
 
@@ -212,14 +290,6 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         return offlineText.isEmpty() ? allText.toString() : offlineText.toString();
     }
 
-    private Integer requiredAuthenticatedUserId(URI uri) {
-        String token = queryParam(uri, "token");
-        if (!StringUtils.hasText(token)) {
-            throw new IllegalArgumentException("token is required");
-        }
-        return AuthContextUtil.parseUserIdFromToken(token);
-    }
-
     private String queryParam(URI uri, String name) {
         return UriComponentsBuilder.fromUri(uri).build().getQueryParams().getFirst(name);
     }
@@ -244,11 +314,21 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
 
         @Override
         public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+            if (context.finished.get()) return CompletableFuture.completedFuture(null);
+            if (buffer.length() + data.length() > 65536) {
+                terminate(context, "识别响应过大"); return CompletableFuture.completedFuture(null);
+            }
             buffer.append(data);
             if (last) {
                 String payload = buffer.toString();
                 buffer.setLength(0);
-                context.addServerMessage(payload);
+                if (!context.acceptsMessages()) {
+                    webSocket.request(1);
+                    return CompletableFuture.completedFuture(null);
+                }
+                if (!context.addServerMessage(payload)) {
+                    terminate(context, "识别结果已达会话上限"); return CompletableFuture.completedFuture(null);
+                }
                 try {
                     if (context.getFrontSession().isOpen()) {
                         synchronized (context.getFrontSession()) {
@@ -256,6 +336,7 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
                         }
                     }
                 } catch (Exception ignored) {
+                    terminate(context, "前端连接已中断");
                 }
             }
             webSocket.request(1);
@@ -264,12 +345,13 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
 
         @Override
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+            terminate(context, "识别服务连接已关闭");
             return CompletableFuture.completedFuture(null);
         }
 
         @Override
         public void onError(WebSocket webSocket, Throwable error) {
-            context.addServerMessage("{\"mode\":\"error\",\"text\":\"\",\"error\":\"" + safeFilename(error.getMessage()) + "\"}");
+            terminate(context, "识别服务连接异常");
         }
     }
 
@@ -281,6 +363,11 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
         private final ByteArrayOutputStream audioBuffer = new ByteArrayOutputStream();
         private final List<String> serverMessages = new CopyOnWriteArrayList<>();
         private final AtomicBoolean finished = new AtomicBoolean(false);
+        private final long created = System.nanoTime();
+        private volatile long lastActivity = created;
+        private long audioBytesSeen;
+        private long messageChars;
+        private final TurnLifecycle turnLifecycle = new TurnLifecycle();
 
         private volatile WebSocket funasrSocket;
         private volatile String wavName;
@@ -306,16 +393,38 @@ public class FunasrRealtimeProxyHandler extends AbstractWebSocketHandler {
             return historyId;
         }
 
-        private void appendAudio(byte[] bytes) {
-            audioBuffer.write(bytes, 0, bytes.length);
+        private synchronized boolean appendAudio(byte[] bytes) {
+            if (finished.get() || audioBytesSeen + bytes.length > 20L * 1024 * 1024) return false;
+            audioBytesSeen += bytes.length;
+            if (historyId != null) audioBuffer.write(bytes, 0, bytes.length);
+            return true;
         }
 
-        private byte[] getAudioBytes() {
+        private boolean startTurn(String turnId) {
+            return turnLifecycle.start(turnId);
+        }
+
+        private boolean interruptTurn(String turnId) {
+            return turnLifecycle.interrupt(turnId);
+        }
+
+        private boolean acceptsMessages() {
+            return turnLifecycle.acceptsMessages();
+        }
+
+        private String getTurnId() {
+            return turnLifecycle.turnId();
+        }
+
+        private synchronized byte[] getAudioBytes() {
             return audioBuffer.toByteArray();
         }
 
-        private void addServerMessage(String payload) {
-            serverMessages.add(payload);
+        private synchronized boolean addServerMessage(String payload) {
+            if (finished.get() || messageChars + payload.length() > 2L * 1024 * 1024) return false;
+            messageChars += payload.length();
+            if (historyId != null) serverMessages.add(payload);
+            return true;
         }
 
         private List<String> getServerMessages() {

@@ -66,13 +66,14 @@ http.interceptors.request.use(
     if (token) {
       config.headers = config.headers || {};
       config.headers.Authorization = `Bearer ${token}`;
+    } else if (config.headers) {
+      delete config.headers.Authorization;
     }
     return config;
   },
   error => {
     // 请求错误处理
-    console.log(error); // for debug
-    Promise.reject(error);
+    return Promise.reject(error);
   }
 );
  
@@ -98,7 +99,6 @@ http.interceptors.response.use(
   },
   error => {
     // 对响应错误做处理
-    console.log('err' + error); // for debug
     return Promise.reject(error);
   }
 );

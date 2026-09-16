@@ -49,6 +49,8 @@ import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.apache.poi.xwpf.usermodel.XWPFTableCell;
 import org.apache.poi.xwpf.usermodel.XWPFTableRow;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -101,7 +103,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
     private static final double MIN_SEGMENT_SECONDS = 1.2d;
     private static final double MAX_SEGMENT_SECONDS = 12.0d;
     private static final long MERGE_MAX_GAP_MS = 1500L;
-    private static final BigDecimal ANONYMOUS_SPEAKER_THRESHOLD = new BigDecimal("0.72");
+    @Resource
+    private com.wc.meeting.diarization.SpeakerDiarizationAdapter diarizationAdapter;
 
     @Resource
     private UserMeetingNoteMapper userMeetingNoteMapper;
@@ -408,13 +411,27 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public UserMeetingNoteVO applyCorrection(Integer meetingId, Integer userId, MeetingCorrectionRequest request) {
-        UserMeetingNote note = getMeetingById(meetingId, userId);
         if (request == null) {
             throw new IllegalArgumentException("校正内容不能为空");
         }
+        requireUser(userId);
+        if (meetingId == null) throw new IllegalArgumentException("meetingId 不能为空");
+        // Serialize manual revisions for the same owned meeting within this transaction.
+        UserMeetingNote note = userMeetingNoteMapper.selectOwnedForCorrection(meetingId, userId);
+        if (note == null) throw new IllegalArgumentException("纪要不存在或无权校正");
+        if (!"SUCCESS".equals(note.getStatus())) {
+            throw new IllegalArgumentException("仅处理成功的纪要可以校正，请等待处理完成");
+        }
 
         List<UserMeetingSegment> segments = listSegmentEntitiesByMeetingId(note.getId());
+        String currentToken = com.wc.meeting.MeetingCorrectionToken.of(note,
+                segments.stream().map(this::toSegmentView).toList());
+        if (!currentToken.equals(request.getCorrectionToken())) {
+            throw new com.wc.meeting.MeetingCorrectionConflict();
+        }
+        String previousSegmentText = buildFullTranscriptFromSegments(segments);
         applySegmentCorrections(segments, request.getSpeakerSegments());
 
         if (request.getTitle() != null) {
@@ -431,14 +448,19 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
         if (request.getFullTranscript() != null) {
             note.setFullTranscript(normalizeLongText(request.getFullTranscript()));
-        } else if (request.getSpeakerSegments() != null && !request.getSpeakerSegments().isEmpty()) {
-            note.setFullTranscript(buildFullTranscriptFromSegments(segments));
+        } else {
+            String correctedSegmentText = buildFullTranscriptFromSegments(segments);
+            if (!previousSegmentText.equals(correctedSegmentText)) {
+                note.setFullTranscript(correctedSegmentText);
+            }
         }
 
         note.setStatus("SUCCESS");
         note.setErrorMessage(null);
         note.setUpdateTime(new Date());
-        userMeetingNoteMapper.updateById(note);
+        if (userMeetingNoteMapper.updateById(note) != 1) {
+            throw new IllegalStateException("纪要保存失败，请重新加载后重试");
+        }
         UserMeetingNoteVO view = toView(note, true);
         saveRevisionSnapshot(note, view.getSpeakerBlocks(), view.getSpeakerSegments(), "MANUAL");
         return view;
@@ -758,6 +780,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             lines.add("");
             lines.add("【整理后发言块】");
             appendSpeakerBlocksText(lines, detail.getSpeakerBlocks());
+            lines.addAll(speakerEvidenceLines(detail));
         }
         if (shouldInclude(template.getIncludeFullTranscript())) {
             lines.add("");
@@ -837,6 +860,10 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             lines.add("## 整理后发言块");
             lines.add("");
             appendSpeakerBlocksMarkdown(lines, detail.getSpeakerBlocks());
+            // Quote evidence as a literal block, so source text cannot become Markdown links/HTML.
+            for (String line : speakerEvidenceLines(detail)) {
+                for (String part : line.split("\\R", -1)) lines.add("    " + part);
+            }
         }
         if (shouldInclude(template.getIncludeFullTranscript())) {
             lines.add("");
@@ -1069,6 +1096,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
         if (shouldInclude(template.getIncludeSpeakerBlocks())) {
             addDocxHeading(document, "整理后发言块");
+            for (String line : speakerEvidenceLines(detail)) addDocxParagraph(document, line);
             if (detail.getSpeakerBlocks() == null || detail.getSpeakerBlocks().isEmpty()) {
                 addDocxParagraph(document, "暂无整理后发言块");
             } else {
@@ -1080,6 +1108,25 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             addDocxParagraph(document, safeExportText(detail.getFullTranscript()));
         }
         return document;
+    }
+
+    private List<String> speakerEvidenceLines(UserMeetingNoteVO detail) {
+        List<String> lines = new ArrayList<>();
+        lines.add("按发言人整理（原文摘录；结论、待办候选需核对；发言人不自动等于负责人）");
+        for (var group : com.wc.meeting.MeetingSpeakerOrganizer.organize(detail.getSpeakerSegments())) {
+            lines.add(group.speakerName() + "：" + group.identityNotice());
+            appendEvidenceLines(lines, "观点与发言原文", group.statements());
+            appendEvidenceLines(lines, "结论候选", group.decisionCandidates());
+            appendEvidenceLines(lines, "待办候选", group.todoCandidates());
+        }
+        return lines;
+    }
+
+    private void appendEvidenceLines(List<String> lines, String title,
+            List<com.wc.meeting.MeetingSpeakerOrganizer.Evidence> items) {
+        lines.add(title + (items.isEmpty() ? "：未提取到相关原文" : "："));
+        for (var evidence : items) lines.add("[片段 #" + evidence.segmentId() + " "
+                + formatRange(evidence.startMs(), evidence.endMs()) + "] " + evidence.text());
     }
 
     private void addDocxTitle(XWPFDocument document, String text) {
@@ -1608,55 +1655,56 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             }
 
             List<UserMeetingSegmentVO> segments = new ArrayList<>();
-            List<SpeakerCluster> anonymousClusters = new ArrayList<>();
-            int segmentIndex = 1;
-            for (TimeRange range : ranges) {
-                Path segmentPath = tempDir.resolve("segment_" + segmentIndex + ".wav");
-                cutSegment(inputPath, range, segmentPath);
-                byte[] segmentBytes = Files.readAllBytes(segmentPath);
-                if (segmentBytes.length == 0) {
+            try (var anonymousSession = diarizationAdapter.openSession()) {
+                int segmentIndex = 1;
+                for (TimeRange range : ranges) {
+                    Path segmentPath = tempDir.resolve("segment_" + segmentIndex + ".wav");
+                    cutSegment(inputPath, range, segmentPath);
+                    byte[] segmentBytes = Files.readAllBytes(segmentPath);
+                    if (segmentBytes.length == 0) {
+                        segmentIndex++;
+                        continue;
+                    }
+
+                    MultipartFile segmentFile = new InMemoryMultipartFile(
+                            "file",
+                            "segment_" + segmentIndex + ".wav",
+                            "audio/wav",
+                            segmentBytes
+                    );
+
+                    JsonNode segmentResponse = funasrService.transcribeAudio(segmentFile, batchSizeS, hotword);
+                    String segmentTranscript = extractAsrText(segmentResponse);
+                    if (!StringUtils.hasText(segmentTranscript)) {
+                        segmentIndex++;
+                        continue;
+                    }
+
+                    SpeakerMatch bestMatch = matchSpeaker(segmentBytes, profiles, sampleAudioBytes);
+                    if (autoDiarization && bestMatch.profileId == null) {
+                        var assignment = anonymousSession.assign(segmentBytes);
+                        bestMatch = new SpeakerMatch(null, assignment.label(), assignment.similarity());
+                    }
+                    UserMeetingSegment segment = new UserMeetingSegment();
+                    segment.setMeetingId(note.getId());
+                    segment.setSegmentIndex(segmentIndex);
+                    segment.setStartMs(Math.round(range.startSeconds * 1000));
+                    segment.setEndMs(Math.round(range.endSeconds * 1000));
+                    segment.setSpeakerProfileId(bestMatch.profileId);
+                    segment.setSpeakerName(bestMatch.speakerName);
+                    segment.setMatchScore(bestMatch.score);
+                    segment.setTranscript(segmentTranscript);
+                    segment.setSegmentFilename("segment_" + segmentIndex + ".wav");
+                    segment.setSegmentContentType("audio/wav");
+                    segment.setSegmentFileSize((long) segmentBytes.length);
+                    segment.setCreateTime(new Date());
+                    segment.setUpdateTime(new Date());
+                    userMeetingSegmentMapper.insert(segment);
+                    uploadSegmentAudio(segment, userId, segmentBytes);
+                    segments.add(toSegmentView(segment));
                     segmentIndex++;
-                    continue;
                 }
-
-                MultipartFile segmentFile = new InMemoryMultipartFile(
-                        "file",
-                        "segment_" + segmentIndex + ".wav",
-                        "audio/wav",
-                        segmentBytes
-                );
-
-                JsonNode segmentResponse = funasrService.transcribeAudio(segmentFile, batchSizeS, hotword);
-                String segmentTranscript = extractAsrText(segmentResponse);
-                if (!StringUtils.hasText(segmentTranscript)) {
-                    segmentIndex++;
-                    continue;
-                }
-
-                SpeakerMatch bestMatch = matchSpeaker(segmentBytes, profiles, sampleAudioBytes);
-                if (autoDiarization && bestMatch.profileId == null) {
-                    bestMatch = assignAnonymousSpeaker(segmentBytes, anonymousClusters);
-                }
-                UserMeetingSegment segment = new UserMeetingSegment();
-                segment.setMeetingId(note.getId());
-                segment.setSegmentIndex(segmentIndex);
-                segment.setStartMs(Math.round(range.startSeconds * 1000));
-                segment.setEndMs(Math.round(range.endSeconds * 1000));
-                segment.setSpeakerProfileId(bestMatch.profileId);
-                segment.setSpeakerName(bestMatch.speakerName);
-                segment.setMatchScore(bestMatch.score);
-                segment.setTranscript(segmentTranscript);
-                segment.setSegmentFilename("segment_" + segmentIndex + ".wav");
-                segment.setSegmentContentType("audio/wav");
-                segment.setSegmentFileSize((long) segmentBytes.length);
-                segment.setCreateTime(new Date());
-                segment.setUpdateTime(new Date());
-                userMeetingSegmentMapper.insert(segment);
-                uploadSegmentAudio(segment, userId, segmentBytes);
-                segments.add(toSegmentView(segment));
-                segmentIndex++;
             }
-
             segments.sort(Comparator.comparing(UserMeetingSegmentVO::getSegmentIndex));
             return segments;
         } finally {
@@ -1709,59 +1757,6 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             }
         }
         return bestMatch;
-    }
-
-    private SpeakerMatch assignAnonymousSpeaker(byte[] segmentBytes, List<SpeakerCluster> clusters) throws IOException {
-        if (clusters.isEmpty()) {
-            SpeakerCluster cluster = new SpeakerCluster(1, "说话人 1", segmentBytes);
-            clusters.add(cluster);
-            return new SpeakerMatch(null, cluster.label, null);
-        }
-
-        SpeakerCluster bestAcceptedCluster = null;
-        BigDecimal bestAcceptedScore = null;
-        BigDecimal bestObservedScore = null;
-        MultipartFile segmentFile = new InMemoryMultipartFile("file2", "segment.wav", "audio/wav", segmentBytes);
-        for (SpeakerCluster cluster : clusters) {
-            MultipartFile sampleFile = new InMemoryMultipartFile(
-                    "file1",
-                    "anonymous_" + cluster.index + ".wav",
-                    "audio/wav",
-                    cluster.representativeBytes
-            );
-            VoiceprintCompareResult compareResult = voiceprintService.compare(sampleFile, segmentFile);
-            if (compareResult.getScore() == null) {
-                continue;
-            }
-            if (bestObservedScore == null || compareResult.getScore().compareTo(bestObservedScore) > 0) {
-                bestObservedScore = compareResult.getScore();
-            }
-            if (isAnonymousSpeakerAccepted(compareResult)
-                    && (bestAcceptedScore == null || compareResult.getScore().compareTo(bestAcceptedScore) > 0)) {
-                bestAcceptedCluster = cluster;
-                bestAcceptedScore = compareResult.getScore();
-            }
-        }
-
-        if (bestAcceptedCluster != null) {
-            return new SpeakerMatch(null, bestAcceptedCluster.label, bestAcceptedScore);
-        }
-
-        SpeakerCluster cluster = new SpeakerCluster(
-                clusters.size() + 1,
-                "说话人 " + (clusters.size() + 1),
-                segmentBytes
-        );
-        clusters.add(cluster);
-        return new SpeakerMatch(null, cluster.label, bestObservedScore);
-    }
-
-    private boolean isAnonymousSpeakerAccepted(VoiceprintCompareResult compareResult) {
-        if (Boolean.TRUE.equals(compareResult.getSamePerson())) {
-            return true;
-        }
-        return compareResult.getScore() != null
-                && compareResult.getScore().compareTo(ANONYMOUS_SPEAKER_THRESHOLD) >= 0;
     }
 
     private List<TimeRange> detectSpeechRanges(Path inputPath) throws Exception {
@@ -2515,7 +2510,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
         List<UserMeetingDecisionInsightVO> result = new ArrayList<>();
         for (String sentence : pickSentencesByMarkers(sentences, MEETING_DECISION_MARKERS, 3)) {
-            result.add(createDecisionInsight("confirmed", "已确认结论", sentence, resolveSpeakerFromSentence(sentence, speakerBlocks)));
+            result.add(createDecisionInsight("candidate", "结论候选（需核对原文）", sentence, resolveSpeakerFromSentence(sentence, speakerBlocks)));
         }
         for (String sentence : pickSentencesByMarkers(sentences, PENDING_DECISION_MARKERS, 3)) {
             result.add(createDecisionInsight("pending", "待确认事项", sentence, resolveSpeakerFromSentence(sentence, speakerBlocks)));
@@ -2574,14 +2569,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
         Matcher matcher = OWNER_ACTION_PATTERN.matcher(task);
         if (matcher.find()) {
-            return normalizeManualSpeakerName(matcher.group(2));
-        }
-        if (knownSpeakers != null) {
-            for (String speakerName : knownSpeakers) {
-                if (StringUtils.hasText(speakerName) && task.contains(speakerName)) {
-                    return speakerName;
-                }
-            }
+            String owner = normalizeManualSpeakerName(matcher.group(2));
+            if (!List.of("我", "我们", "你", "你们", "他", "她", "他们", "大家").contains(owner)) return owner;
         }
         return null;
     }
@@ -2601,15 +2590,16 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         if (!StringUtils.hasText(sentence) || speakerBlocks == null || speakerBlocks.isEmpty()) {
             return null;
         }
+        Set<String> matches = new LinkedHashSet<>();
         for (UserMeetingSpeakerBlockVO block : speakerBlocks) {
             if (block == null || !StringUtils.hasText(block.getTranscript())) {
                 continue;
             }
-            if (block.getTranscript().contains(sentence) || sentence.contains(shortenText(block.getTranscript(), 18))) {
-                return normalizeSpeakerName(block.getSpeakerName());
+            if (block.getTranscript().contains(sentence)) {
+                matches.add(normalizeSpeakerName(block.getSpeakerName()));
             }
         }
-        return null;
+        return matches.size() == 1 ? matches.iterator().next() : null;
     }
 
     private String shortenText(String text, int maxLength) {
@@ -2748,8 +2738,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         if (blockEnd == null || nextStart == null || nextStart - blockEnd > MERGE_MAX_GAP_MS) {
             return false;
         }
-        if (block.getSpeakerProfileId() != null && block.getSpeakerProfileId().equals(segment.getSpeakerProfileId())) {
-            return true;
+        if (block.getSpeakerProfileId() != null || segment.getSpeakerProfileId() != null) {
+            return java.util.Objects.equals(block.getSpeakerProfileId(), segment.getSpeakerProfileId());
         }
         String currentSpeaker = normalizeSpeakerName(block.getSpeakerName());
         String nextSpeaker = normalizeSpeakerName(segment.getSpeakerName());
@@ -2823,6 +2813,8 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             view.setSpeakerBlocks(blocks);
             view.setSpeakerSegments(segments);
             view.setSpeakerTranscript(buildSpeakerTranscript(blocks));
+            view.setCorrectionToken(com.wc.meeting.MeetingCorrectionToken.of(note, segments));
+            view.setSpeakerSummaries(com.wc.meeting.MeetingSpeakerOrganizer.organize(segments));
         }
         if (!includeSegments) {
             view.setSpeakerBlocks(Collections.emptyList());
@@ -2875,10 +2867,21 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         revision.setTodoJson(note.getTodoJson());
         revision.setFullTranscript(note.getFullTranscript());
         revision.setSpeakerTranscript(buildSpeakerTranscript(speakerBlocks));
-        revision.setSpeakerBlocksJson(toJson(speakerBlocks));
-        revision.setSpeakerSegmentsJson(toJson(speakerSegments));
+        if ("MANUAL".equals(revisionType)) {
+            try {
+                revision.setSpeakerBlocksJson(objectMapper.writeValueAsString(speakerBlocks));
+                revision.setSpeakerSegmentsJson(objectMapper.writeValueAsString(speakerSegments));
+            } catch (Exception ex) {
+                throw new IllegalStateException("校正版本生成失败", ex);
+            }
+        } else {
+            revision.setSpeakerBlocksJson(toJson(speakerBlocks));
+            revision.setSpeakerSegmentsJson(toJson(speakerSegments));
+        }
         revision.setCreateTime(new Date());
-        userMeetingRevisionMapper.insert(revision);
+        if (userMeetingRevisionMapper.insert(revision) != 1) {
+            throw new IllegalStateException("纪要版本保存失败");
+        }
     }
 
     private UserMeetingRevisionVO toRevisionView(UserMeetingRevision revision) {
@@ -2903,6 +2906,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         view.setSpeakerTranscript(revision.getSpeakerTranscript());
         view.setSpeakerBlocks(parseSpeakerBlockList(revision.getSpeakerBlocksJson()));
         view.setSpeakerSegments(parseSpeakerSegmentList(revision.getSpeakerSegmentsJson()));
+        view.setSpeakerSummaries(com.wc.meeting.MeetingSpeakerOrganizer.organize(view.getSpeakerSegments()));
         view.setCreateTime(revision.getCreateTime());
         return view;
     }
@@ -2925,22 +2929,28 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
     }
 
     private void applySegmentCorrections(List<UserMeetingSegment> segments, List<MeetingSegmentCorrectionItem> corrections) {
-        if (segments == null || segments.isEmpty() || corrections == null || corrections.isEmpty()) {
+        if (corrections == null || corrections.isEmpty()) {
             return;
         }
         Map<Integer, UserMeetingSegment> segmentMap = new LinkedHashMap<>();
         for (UserMeetingSegment segment : segments) {
             segmentMap.put(segment.getId(), segment);
         }
+        Set<Integer> correctedIds = new LinkedHashSet<>();
+        // Validate the complete batch before writing any segment.
         for (MeetingSegmentCorrectionItem correction : corrections) {
-            if (correction == null || correction.getId() == null) {
-                continue;
+            if (correction == null || correction.getId() == null
+                    || !segmentMap.containsKey(correction.getId()) || !correctedIds.add(correction.getId())) {
+                throw new IllegalArgumentException("校正片段无效、重复或不属于当前纪要");
             }
+            if (correction.getSpeakerName() != null && correction.getSpeakerName().trim().length() > 64) {
+                throw new IllegalArgumentException("发言人名称不能超过64字符");
+            }
+        }
+        for (MeetingSegmentCorrectionItem correction : corrections) {
             UserMeetingSegment segment = segmentMap.get(correction.getId());
-            if (segment == null) {
-                continue;
-            }
             boolean changed = false;
+            boolean renamed = false;
             if (correction.getSpeakerName() != null) {
                 String normalizedSpeakerName = normalizeManualSpeakerName(correction.getSpeakerName());
                 if (!normalizedSpeakerName.equals(normalizeSpeakerName(segment.getSpeakerName()))) {
@@ -2948,6 +2958,7 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
                     segment.setSpeakerProfileId(null);
                     segment.setMatchScore(null);
                     changed = true;
+                    renamed = true;
                 }
             }
             if (correction.getTranscript() != null) {
@@ -2959,7 +2970,9 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
             }
             if (changed) {
                 segment.setUpdateTime(new Date());
-                userMeetingSegmentMapper.updateById(segment);
+                if (userMeetingSegmentMapper.updateCorrection(segment, renamed) != 1) {
+                    throw new IllegalStateException("片段保存失败，请重新加载后重试");
+                }
             }
         }
     }
@@ -3127,15 +3140,4 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
         }
     }
 
-    private static final class SpeakerCluster {
-        private final int index;
-        private final String label;
-        private final byte[] representativeBytes;
-
-        private SpeakerCluster(int index, String label, byte[] representativeBytes) {
-            this.index = index;
-            this.label = label;
-            this.representativeBytes = representativeBytes;
-        }
-    }
 }
