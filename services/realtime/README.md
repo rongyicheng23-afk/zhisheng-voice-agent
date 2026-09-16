@@ -2,10 +2,8 @@
 
 The gateway is the Python `asyncio + FastAPI + WebSocket` service described in
 the solution. It provides secure ticket validation, ordered events, bounded
-outbound delivery, cancellation and a DeepSeek streaming LLM adapter. Streaming
-TTS on the legacy text endpoint remains unconfigured. The new
-`/realtime/voice` endpoint connects the existing turn core to segmented XTTS
-and the browser PCM player.
+outbound delivery, cancellation, a DeepSeek streaming LLM adapter and an
+iFlytek PCM streaming-TTS adapter.
 
 ## Local start
 
@@ -15,82 +13,68 @@ Use one identical, high-entropy value for the Spring Boot service and gateway:
 export REALTIME_GATEWAY_INTERNAL_KEY='replace-with-a-long-random-local-secret'
 export SPRING_BOOT_URL='http://127.0.0.1:18080'
 export DEEPSEEK_API_KEY='keep-your-key-local-and-never-commit-it'
-export DEEPSEEK_MODEL='deepseek-v4-flash'
-export DEEPSEEK_MAX_TOKENS='1024'
-cd services/realtime
-python -m uvicorn gateway:app --host 127.0.0.1 --port 18081
+export DEEPSEEK_MODEL='deepseek-flash'
+export XFYUN_TTS_APP_ID='keep-your-app-id-local'
+export XFYUN_TTS_API_KEY='keep-your-api-key-local'
+export XFYUN_TTS_API_SECRET='keep-your-api-secret-local'
+# Optional and preferred for local development: create an APIPassword in the
+# iFlytek console. When set, it is sent in a WSS header instead of a URL query.
+export XFYUN_TTS_API_PASSWORD='keep-your-api-password-local'
+export XFYUN_TTS_VOICE='x4_xiaoyan'
+# This is the existing local FunASR real-time WebSocket service.
+export FUNASR_REALTIME_URL='ws://127.0.0.1:10095'
+cd "/Users/frank/Desktop/voice /services/realtime"
+../../.venv-models/bin/uvicorn gateway:app --host 127.0.0.1 --port 18081
 ```
 
 Start Spring Boot with the same `REALTIME_GATEWAY_INTERNAL_KEY`. Its ticket
 endpoint must be running before a browser can connect to `ws://127.0.0.1:18081/realtime/ws?ticket=...`.
 
 The gateway reads the API key only when it starts. Its health endpoint will show
-`"llmAdapter":"deepseek"` and `"llmModel":"deepseek-v4-flash"` after a key is
-configured:
+`"llmAdapter":"deepseek"`, `"llmModel":"deepseek-flash"` and
+`"ttsAdapter":"xfyun"` after the corresponding credentials are configured:
 
 ```bash
 curl http://127.0.0.1:18081/realtime/health
 ```
 
 The browser sends `turn.start` with a UUID `turnId` and an optional `prompt`,
-or sends `llm.request` after a turn has started. For every DeepSeek SSE text
-delta the gateway emits an ordered `llm.delta` event. It also emits
-`tts.segment_ready` events for the existing semantic segmenter, but it does
-not synthesize audio until a streaming TTS adapter is connected.
+or sends `llm.request` after a turn has started. To use the full voice path,
+send `turn.start` without `prompt`, then send PCM audio as binary WebSocket
+frames and finish with `{ "event": "audio.end", "turnId": "..." }`.
+The gateway sends those frames to FunASR. Its final ASR text is automatically
+used as the DeepSeek prompt **for the same turnId**; the browser does not need
+to send a second `llm.request`. For every DeepSeek SSE text delta the gateway emits an ordered `llm.delta` event. It also emits
+`tts.segment_ready` events for the existing semantic segmenter. Each completed
+segment is submitted to iFlytek in order; its PCM output is emitted as
+`tts.first_audio`, `audio.chunk`, and `tts.segment_completed` events. The
+browser must decode and play the `audioBase64` PCM chunks with AudioWorklet;
+that browser-playback layer remains separate from this gateway.
 
-## Voice replies (segmented XTTS)
+When the local RAG service is available, the gateway asks Spring Boot to
+retrieve sources before each LLM request. Spring filters the logged-in user's
+published, non-expired documents before returning context. The gateway emits
+`retrieval.completed` with the session `citations` dictionary, while each
+`tts.segment_ready`, `tts.first_audio`, and `audio.chunk` has only matching
+`citationIds`. Tags such as `【C001】` are removed before TTS, so the source is
+visible in the page but is never spoken aloud.
 
-The realtime recognition page now contains a voice reply panel. After recognition
-finishes, use its result as the prompt, or type a question and click Send.
-Auto reply is an explicit page-local opt-in and fires only after the recognition
-completion event (not connection failure/timeout). Starting another recording or
-clicking Interrupt stops playback and cancels consumption of the previous reply.
-This is push-to-talk interruption, not continuous microphone/VAD barge-in.
+At any point the browser can send `{ "event": "turn.interrupt", "turnId":
+"..." }`. The gateway immediately emits the terminal `turn.cancelled` event,
+closes the active FunASR work, cancels the DeepSeek request and active iFlytek
+TTS work, and rejects later events for that turn. The browser should also clear
+its own queued audio when it receives `turn.cancelled`.
 
-Configure these variables in the shell used to start services:
+## Local TTS smoke test
 
-- `REALTIME_GATEWAY_INTERNAL_KEY`: the same secret in Spring Boot and Python.
-- `DEEPSEEK_API_KEY`: your own server-side API key; never put it in frontend env.
-- `REALTIME_TTS_REFERENCE`: absolute path of a reference recording you are authorized to use.
-- `REALTIME_TTS_URL`: optional trusted internal TTS URL, default `http://127.0.0.1:8003/synthesize`.
-- `REALTIME_PYTHON`: Python executable with dependencies from this folder's requirements.
-
-Start the existing project services, then from the repository root run:
+With the three `XFYUN_TTS_*` credentials exported in the current terminal,
+run the following once to verify that iFlytek returns PCM data. It prints only
+the number of chunks and bytes, writes no audio file, and consumes one service
+call:
 
 ```bash
-bash scripts/start-realtime-gateway.sh
+../../.venv-models/bin/python smoke_tts.py
 ```
-
-The existing one-click launcher still starts ASR, XTTS, Java and Vue; it does not
-automatically start this optional gateway. If Java was started without the
-internal key, restart it from a shell that exports that key. Both processes must
-inherit it. Stop the gateway using Ctrl+C in its terminal.
-
-Local frontend defaults to port 18081. In production proxy `/realtime/voice` to
-the gateway with WebSocket upgrade and WSS, or set the frontend
-`VUE_APP_REALTIME_GATEWAY_URL` base URL at build time. Both gateway and Java must
-allow the frontend Origin in `REALTIME_ALLOWED_ORIGINS`.
-
-The new protocol starts with `session.ready`, then accepts one `turn.start`
-with a prompt per connection. It emits the existing turn core's events, including
-`turn.started`, `llm.delta`, `segment.ready`, `audio.chunk`, `audio.completed`
-and terminal states. PCM is base64, mono PCM16 at 24 kHz, at most 100 ms per chunk.
-The client sends `audio.ack` with the received event sequence only when playback
-buffer occupancy permits the next chunk; the server allows one unacknowledged
-chunk. Completion waits for browser `playback.completed`.
-
-The UI shows first-text and first-audible-output times measured from question
-submission. They are local measurements, not benchmark claims. XTTS completes
-one semantic segment before its PCM is sent; this is not model-level streaming.
-An already-running XTTS HTTP inference cannot be cancelled: its result is
-discarded on interruption and no subsequent segments are requested. It may
-temporarily return busy for a new request; the UI reports failure without retry
-loops or duplicate billing. The gateway limits voice sessions to four concurrent
-users and one per user in a single process. Use one worker or add shared admission
-control before scaling horizontally.
-
-Transport tests use synthetic PCM and mocked providers. They do not establish
-real ASR accuracy, model latency, audio quality or cloud end-to-end performance.
 
 For production, place this service behind Nginx or an API gateway and expose it
 as WSS only. Do not expose the Spring internal ticket-consumption endpoint to

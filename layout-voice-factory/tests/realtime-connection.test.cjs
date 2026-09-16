@@ -18,6 +18,13 @@ function load(file, globals) {
 
 function setup(fetchImpl) {
   const sockets = [], requests = [], states = [], messages = []
+  class Player {
+    async start() {}
+    stop() {}
+    play() {}
+    completeSegment() {}
+    markTurnCompleted() {}
+  }
   class Socket {
     static OPEN = 1
     readyState = 0
@@ -28,12 +35,18 @@ function setup(fetchImpl) {
     open() { this.readyState = 1; this.onopen({}); this.onmessage({ data: '{"event":"session.ready"}' }) }
   }
   const module = load('websocket-client.ts', {
-    require: () => ({ getRuntimeWsBaseUrl: () => 'ws://127.0.0.1:18080', getRuntimeHttpBaseUrl: () => 'http://127.0.0.1:18080' }),
-    WebSocket: Socket, window: { WebSocket: Socket },
+    require: id => id.includes('pcm-turn-player')
+      ? { PcmTurnPlayer: Player }
+      : {
+          getRealtimeGatewayWsBaseUrl: () => 'ws://127.0.0.1:18081',
+          getRuntimeHttpBaseUrl: () => 'http://127.0.0.1:18080'
+        },
+    WebSocket: Socket, window: { WebSocket: Socket, setTimeout, clearTimeout },
+    crypto: { randomUUID: () => '11111111-1111-4111-8111-111111111111' },
     localStorage: { getItem: () => 'LONG_LOGIN_JWT' }, sessionStorage: { getItem: () => null },
     fetch: async (url, options) => {
       requests.push({ url, options })
-      return fetchImpl ? fetchImpl() : { ok: true, json: async () => ({ code: 200, data: { ticket: 'a'.repeat(43), purpose: 'funasr' } }) }
+      return fetchImpl ? fetchImpl() : { status: 200, ok: true, json: async () => ({ ticket: 'a'.repeat(43) }) }
     }
   })
   const client = module.WebSocketConnectMethod({ stateHandle: state => states.push(state), msgHandle: msg => messages.push(msg) })
@@ -49,7 +62,7 @@ test('JWT only goes in HTTP header; actual open resolves connection', async () =
   assert.equal(new URL(f.sockets[0].url).searchParams.get('save_audio'), null)
   assert.equal(new URL(f.sockets[0].url).searchParams.get('ticket'), 'a'.repeat(43))
   f.sockets[0].open()
-  assert.equal(await connection, 1)
+  assert.equal(await connection, undefined)
   assert.ok(!JSON.stringify(f.client.getConnectionStatus()).includes('ticket'))
   f.client.wsStop()
 })
@@ -58,17 +71,18 @@ test('stop while ticket request is pending prevents socket creation', async () =
   const f = setup(() => new Promise(resolve => { release = resolve }))
   const connection = f.client.wsStart()
   f.client.wsStop()
-  release({ ok: true, json: async () => ({ code: 200, data: { ticket: 'a'.repeat(43), purpose: 'funasr' } }) })
-  assert.equal(await connection, 0)
+  release({ status: 200, ok: true, json: async () => ({ ticket: 'a'.repeat(43) }) })
+  assert.equal(await connection, undefined)
   assert.equal(f.sockets.length, 0)
 })
-test('recording is saved only when explicitly requested', async () => {
+test('realtime gateway URL carries only the short-lived ticket', async () => {
   const f = setup()
-  const connection = f.client.wsStart({ saveAudio: true })
+  const connection = f.client.wsStart()
   await tick()
-  assert.equal(new URL(f.sockets[0].url).searchParams.get('save_audio'), 'true')
+  assert.equal(new URL(f.sockets[0].url).searchParams.get('save_audio'), null)
+  assert.equal(new URL(f.sockets[0].url).searchParams.get('token'), null)
   f.sockets[0].open()
-  assert.equal(await connection, 1)
+  await connection
   f.client.wsStop()
 })
 test('old messages and close callback cannot affect a new connection', async () => {
@@ -78,6 +92,7 @@ test('old messages and close callback cannot affect a new connection', async () 
   const old = f.sockets[0]
   old.open()
   await connection
+  f.client.wsStop()
   connection = f.client.wsStart()
   await tick()
   f.sockets[1].open()
@@ -89,11 +104,11 @@ test('old messages and close callback cannot affect a new connection', async () 
   f.client.wsStop()
 })
 test('failed ticket never creates a WebSocket', async () => {
-  const f = setup(() => ({ ok: false }))
-  assert.equal(await f.client.wsStart(), 0)
+  const f = setup(() => ({ status: 503, ok: false }))
+  await assert.rejects(f.client.wsStart(), /HTTP 503/)
   assert.equal(f.sockets.length, 0)
 })
-test('HTTP upgrade alone is not model readiness', async () => {
+test('WebSocket open establishes gateway readiness', async () => {
   const f = setup()
   let resolved = false
   const connection = f.client.wsStart().then(result => { resolved = true; return result })
@@ -102,12 +117,9 @@ test('HTTP upgrade alone is not model readiness', async () => {
   socket.readyState = 1
   socket.onopen({})
   await tick()
-  assert.equal(resolved, false)
-  assert.equal(f.client.isConnected(), false)
-  f.client.wsSend('must not send early')
-  assert.equal(socket.sent, undefined)
-  socket.onmessage({ data: '{"event":"session.ready"}' })
-  assert.equal(await connection, 1)
+  assert.equal(resolved, true)
+  assert.equal(f.client.isConnected(), true)
+  assert.equal(await connection, undefined)
   f.client.wsStop()
 })
 test('late microphone permission grant after stop releases tracks', async () => {

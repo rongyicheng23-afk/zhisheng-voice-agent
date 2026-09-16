@@ -170,6 +170,19 @@ export interface MeetingRevisionItem {
   createTime?: string
 }
 
+export interface DiarizationReport {
+  adapter: string
+  anonymousOnly: boolean
+  totalSegments: number
+  clusterCount: number
+  clusters: Record<string, number>
+  profileMatchedSegments: number
+  manualRevisionCount: number
+  derStatus: 'NOT_EVALUATED' | string
+  derMessage: string
+  manualEvidence: string
+}
+
 interface BackendResponse<T> {
   code: number
   msg: string
@@ -240,6 +253,10 @@ export const getMeetingHistoryDetail = (meetingId: number) => {
 
 export const getMeetingRevisions = (meetingId: number) => {
   return http.get<any, BackendResponse<MeetingRevisionItem[]>>(`/api/meeting/history/${meetingId}/revisions`)
+}
+
+export const getDiarizationReport = (meetingId: number) => {
+  return http.get<any, BackendResponse<DiarizationReport>>(`/api/meeting/history/${meetingId}/diarization-report`)
 }
 
 export const applyMeetingCorrection = (meetingId: number, payload: MeetingCorrectionPayload) => {

@@ -4,6 +4,10 @@ import com.wc.config.MinioInfo;
 import com.wc.funasr.config.FunasrProperties;
 import com.wc.tts.config.TtsProperties;
 import com.wc.voiceprint.config.VoiceprintProperties;
+import com.wc.access.AccessControlService;
+import com.wc.access.AccessDeniedException;
+import com.wc.utils.AuthContextUtil;
+import com.wc.result.result.R;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.*;
 import javax.sql.DataSource;
@@ -21,6 +25,7 @@ public class SystemStatusController {
     public record ServiceStatus(String name, String status, long latencyMs, String message) {}
     public record Snapshot(String status, List<ServiceStatus> services, Instant checkedAt) {}
     private final DataSource datasource;
+    private final AccessControlService access;
     private final Map<String, String> endpoints = new LinkedHashMap<>();
     private final ThreadPoolExecutor executor = new ThreadPoolExecutor(6,6,0,TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(6), new ThreadPoolExecutor.AbortPolicy());
@@ -28,8 +33,9 @@ public class SystemStatusController {
     private Snapshot cached;
     private long checkedNanos;
     public SystemStatusController(DataSource datasource, MinioInfo minio, FunasrProperties asr,
-                                  TtsProperties tts, VoiceprintProperties sv) {
+                                  TtsProperties tts, VoiceprintProperties sv, AccessControlService access) {
         this.datasource = datasource;
+        this.access = access;
         endpoints.put("minio", minio.getEndpoint() + "/minio/health/ready");
         endpoints.put("funasr-http", asr.getHttpBaseUrl() + asr.getHealthPath());
         endpoints.put("funasr-ws", asr.getWsUrl());
@@ -65,6 +71,17 @@ public class SystemStatusController {
             checkedNanos = System.nanoTime();
         }
         return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(cached);
+    }
+
+    /** Detailed observation is an operations-only route, unlike the small public health badge. */
+    @GetMapping("/observation")
+    public ResponseEntity<?> observation() {
+        try {
+            access.requireOpsObserver(AuthContextUtil.currentUserId());
+            return ResponseEntity.ok(R.OK(status().getBody()));
+        } catch (AccessDeniedException error) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("message", error.getMessage()));
+        }
     }
     private Future<ServiceStatus> submit(String name, Callable<Boolean> check) {
         try {

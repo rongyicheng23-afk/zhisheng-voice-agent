@@ -31,6 +31,7 @@ tmp/
 layout-tts-0.22.0/layout/uploads/
 **/mysql-data/
 **/minio-data/
+services/rag/rag-data/
 
 # Local credentials and certificates
 **/.env
@@ -43,6 +44,7 @@ layout-tts-0.22.0/layout/uploads/
 **/*.jks
 
 # Downloaded model weights
+services/rag/models/
 **/*.bin
 **/*.ckpt
 **/*.onnx

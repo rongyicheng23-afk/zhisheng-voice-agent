@@ -56,6 +56,8 @@ public interface UserMeetingNoteService {
 
     UserMeetingNoteVO applyCorrection(Integer meetingId, Integer userId, MeetingCorrectionRequest request);
 
+    Map<String, Object> getDiarizationReport(Integer meetingId, Integer userId);
+
     void downloadRawAudio(Integer meetingId, Integer userId, HttpServletResponse response) throws Exception;
 
     void downloadSegmentAudio(Integer meetingId, Integer segmentId, Integer userId, HttpServletResponse response) throws Exception;

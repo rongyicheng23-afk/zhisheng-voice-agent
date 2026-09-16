@@ -29,6 +29,8 @@ public class WebConfig implements WebMvcConfigurer {
                 .addPathPatterns("/api/voiceprint/**")
                 .addPathPatterns("/api/speaker/**")
                 .addPathPatterns("/api/meeting/**")
+                .addPathPatterns("/api/knowledge/**")
+                .addPathPatterns("/api/admin/**")
                 .excludePathPatterns(
                         "/user/login",
                         "/user/register",
@@ -37,6 +39,7 @@ public class WebConfig implements WebMvcConfigurer {
                         "/api/voiceprint/health",
                         "/api/system/status",
                         "/api/realtime/internal/tickets/consume",
+                        "/api/knowledge/internal/**",
                         "/error"
                 );
     }

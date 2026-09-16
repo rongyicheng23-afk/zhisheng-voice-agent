@@ -467,6 +467,42 @@ public class UserMeetingNoteServiceImpl extends ServiceImpl<UserMeetingNoteMappe
     }
 
     @Override
+    public Map<String, Object> getDiarizationReport(Integer meetingId, Integer userId) {
+        UserMeetingNote note = getMeetingById(meetingId, userId);
+        List<UserMeetingSegment> segments = listSegmentEntitiesByMeetingId(note.getId());
+        Map<String, Integer> clusterSizes = new LinkedHashMap<>();
+        int profileMatched = 0;
+        for (UserMeetingSegment segment : segments) {
+            String label = normalizeSpeakerName(segment.getSpeakerName());
+            if (!StringUtils.hasText(label)) {
+                label = "未知发言人";
+            }
+            clusterSizes.put(label, clusterSizes.getOrDefault(label, 0) + 1);
+            if (segment.getSpeakerProfileId() != null) {
+                profileMatched++;
+            }
+        }
+        long manualRevisions = userMeetingRevisionMapper.selectCount(
+                new LambdaQueryWrapper<UserMeetingRevision>()
+                        .eq(UserMeetingRevision::getMeetingId, note.getId())
+                        .eq(UserMeetingRevision::getRevisionType, "MANUAL")
+        );
+
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("adapter", "cam++-voiceprint-anonymous-clustering");
+        report.put("anonymousOnly", true);
+        report.put("totalSegments", segments.size());
+        report.put("clusterCount", clusterSizes.size());
+        report.put("clusters", clusterSizes);
+        report.put("profileMatchedSegments", profileMatched);
+        report.put("manualRevisionCount", manualRevisions);
+        report.put("derStatus", "NOT_EVALUATED");
+        report.put("derMessage", "DER 需要带人工真实说话人标注的参照集；当前会议只提供匿名分组，不虚构评估结果。");
+        report.put("manualEvidence", "每次人工校正都会生成 MANUAL 版本快照，可在版本对比中核对修改前后结果。");
+        return report;
+    }
+
+    @Override
     public void downloadRawAudio(Integer meetingId, Integer userId, HttpServletResponse response) throws Exception {
         UserMeetingNote note = getMeetingById(meetingId, userId);
         if (!StringUtils.hasText(note.getRawBucket()) || !StringUtils.hasText(note.getRawObject())) {

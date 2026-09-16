@@ -45,6 +45,9 @@
               <el-icon class="el-icon--left"><Clock /></el-icon>
               历史记录
             </el-button>
+            <el-button plain @click="loadDiarizationReport">
+              说话人报告
+            </el-button>
             <el-button type="warning" plain @click="openExportDialog">
               <el-icon class="el-icon--left"><Download /></el-icon>
               导出纪要
@@ -326,6 +329,26 @@
           </div>
         </section>
 
+        <section v-if="diarizationReport && !editMode" class="content-card diarization-panel">
+          <div class="audio-section-head">
+            <div>
+              <span>匿名说话人分离报告</span>
+              <small>“说话人 1/2/3”只代表同一场会议内的匿名分组，不代表真实身份。</small>
+            </div>
+            <el-tag type="info" effect="plain">{{ diarizationReport.adapter }}</el-tag>
+          </div>
+          <div class="diarization-stats">
+            <span>语音片段 <b>{{ diarizationReport.totalSegments }}</b></span>
+            <span>匿名簇 <b>{{ diarizationReport.clusterCount }}</b></span>
+            <span>人工校正快照 <b>{{ diarizationReport.manualRevisionCount }}</b></span>
+          </div>
+          <div class="diarization-clusters">
+            <el-tag v-for="item in Object.entries(diarizationReport.clusters || {})" :key="item[0]" effect="plain">{{ item[0] }} · {{ item[1] }} 段</el-tag>
+          </div>
+          <el-alert :title="diarizationReport.derMessage" type="info" :closable="false" show-icon />
+          <p class="diarization-evidence">{{ diarizationReport.manualEvidence }}</p>
+        </section>
+
         <section v-if="editMode" class="content-card editor-panel">
           <div class="editor-head">
             <div>
@@ -589,11 +612,13 @@ import {
   fetchMeetingAudioBlob,
   fetchMeetingExportBlob,
   fetchMeetingSegmentAudioBlob,
+  getDiarizationReport,
   getMeetingHistoryDetail,
   getMeetingRevisions,
   MeetingCorrectionPayload,
   MeetingExportTemplate,
   MeetingHistoryItem,
+  DiarizationReport,
   MeetingRevisionItem,
   MeetingSegmentItem
 } from '@/api/meeting'
@@ -638,6 +663,7 @@ export default defineComponent({
     const segmentAudioUrls = ref<Record<number, string>>({})
     const exportDialogVisible = ref(false)
     const revisionList = ref<MeetingRevisionItem[]>([])
+    const diarizationReport = ref<DiarizationReport | null>(null)
     const leftRevisionId = ref<number | null>(null)
     const rightRevisionId = ref<number | null>(null)
     const exportTemplateConfig = ref<MeetingExportTemplate>({
@@ -956,6 +982,21 @@ export default defineComponent({
       syncRevisionSelection()
     }
 
+    const loadDiarizationReport = async () => {
+      if (!ensureDetailAccess()) return
+      try {
+        const response = await getDiarizationReport(meetingId.value)
+        if (response.code !== 200) throw new Error(response.msg || '加载说话人报告失败')
+        diarizationReport.value = response.data
+      } catch (error: any) {
+        if (error?.response?.status === 401) {
+          handleUnauthorized()
+          return
+        }
+        ElMessage.error(error?.message || '加载说话人报告失败')
+      }
+    }
+
     const hydrateCorrectionForm = () => {
       bulkSource.value = ''
       bulkTarget.value = ''
@@ -993,6 +1034,7 @@ export default defineComponent({
         }
         assignDetail(res.data)
         await loadRevisions()
+        await loadDiarizationReport()
         if (editMode.value) {
           hydrateCorrectionForm()
         }
@@ -1386,6 +1428,7 @@ export default defineComponent({
       correctionForm,
       downloadCorrectionDraft,
       revisionList,
+      diarizationReport,
       leftRevisionId,
       rightRevisionId,
       selectedLeftRevision,
@@ -1430,6 +1473,7 @@ export default defineComponent({
       cancelEditMode,
       saveCorrection,
       openHistoryDrawer,
+      loadDiarizationReport,
       goBack,
       revisionLabel
     }
@@ -1479,6 +1523,12 @@ export default defineComponent({
   padding: 28px;
   box-shadow: 0 22px 48px rgba(30, 61, 122, 0.08), inset 0 0 0 1px rgba(148, 128, 238, 0.06);
 }
+
+.diarization-panel { display: grid; gap: 14px; }
+.diarization-stats, .diarization-clusters { display: flex; flex-wrap: wrap; gap: 10px; }
+.diarization-stats span { padding: 8px 11px; border-radius: 9px; background: #f4f6ff; color: #5c6b87; font-size: 13px; }
+.diarization-stats b { color: #4d61d2; margin-left: 4px; }
+.diarization-evidence { margin: 0; color: #6b7890; font-size: 13px; line-height: 1.7; }
 
 .detail-head {
   display: flex;
