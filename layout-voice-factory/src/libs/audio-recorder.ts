@@ -18,7 +18,9 @@ export class AudioRecorder {
   private readonly processorBufferSize = 1024
   /** 是否正在录音 */
   private isRecording = false
+  /** Stops stale microphone permission requests from reviving an old turn. */
   private generation = 0
+  /** The microphone stream must be stopped explicitly on every turn. */
   private stream: MediaStream | null = null
   /** 是否已连接WebSocket */
   private isConnected = false
@@ -135,9 +137,7 @@ export class AudioRecorder {
     let remainingData: ArrayBuffer | null = null
     if (this.sampleBuf.length > 0) {
       remainingData = this.sampleBuf.buffer
-      console.log('剩余音频数据，大小:', this.sampleBuf.buffer.byteLength, '字节')
     }
-    
     this.sampleBuf = new Int16Array()
     this.onAudioDataCallback = undefined
     return remainingData
@@ -167,4 +167,72 @@ export class AudioRecorder {
       this.stopRecording()
     }
   }
-} 
+}
+
+/**
+ * Lightweight microphone listener used while the assistant is speaking.
+ * It never sends audio to ASR; it only detects that the user has started
+ * speaking, so the active response can be interrupted safely.
+ */
+export class VoiceActivityMonitor {
+  private audioContext: AudioContext | null = null
+  private processor: ScriptProcessorNode | null = null
+  private source: MediaStreamAudioSourceNode | null = null
+  private stream: MediaStream | null = null
+  private generation = 0
+
+  async start(onLevel: (rms: number) => void): Promise<void> {
+    this.stop()
+    const attempt = ++this.generation
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    })
+    if (attempt !== this.generation) {
+      stream.getTracks().forEach(track => track.stop())
+      return
+    }
+
+    this.stream = stream
+    this.audioContext = new AudioContext({ sampleRate: 16000 })
+    await this.audioContext.resume()
+    this.source = this.audioContext.createMediaStreamSource(stream)
+    this.processor = this.audioContext.createScriptProcessor(1024, 1, 1)
+    this.processor.onaudioprocess = event => {
+      if (attempt !== this.generation) return
+      const input = event.inputBuffer.getChannelData(0)
+      if (!input.length) return
+      let squareSum = 0
+      for (let index = 0; index < input.length; index++) {
+        squareSum += input[index] * input[index]
+      }
+      onLevel(Math.sqrt(squareSum / input.length))
+    }
+    this.source.connect(this.processor)
+    this.processor.connect(this.audioContext.destination)
+  }
+
+  stop(): void {
+    this.generation += 1
+    this.stream?.getTracks().forEach(track => track.stop())
+    this.stream = null
+    if (this.processor) {
+      this.processor.disconnect()
+      this.processor.onaudioprocess = null
+      this.processor = null
+    }
+    if (this.source) {
+      this.source.disconnect()
+      this.source = null
+    }
+    if (this.audioContext) {
+      void this.audioContext.close().catch(() => undefined)
+      this.audioContext = null
+    }
+  }
+}

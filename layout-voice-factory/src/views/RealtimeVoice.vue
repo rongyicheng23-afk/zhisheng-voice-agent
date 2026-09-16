@@ -12,7 +12,7 @@
           <div class="hero-status">
             <span class="hero-status-label">连接状态</span>
             <strong>{{ isConnected ? '已连接' : '未连接' }}</strong>
-            <small>{{ isRecording ? '录音进行中，正在持续推送音频流。' : '准备就绪后点击开始录音。' }}</small>
+            <small>{{ conversationActive ? (isRecording ? '正在聆听你说话。' : '正在等待或播报回复。') : '准备就绪后点击开始对话。' }}</small>
           </div>
         </div>
 
@@ -26,15 +26,14 @@
 
         <div class="toolbar">
           <div class="hint-list">
-            <span class="hint-chip">Java WebSocket 代理</span>
-            <span class="hint-chip">实时边录边转写</span>
-            <span class="hint-chip">登录后可开始识别</span>
+            <span class="hint-chip">Python 实时网关</span>
+            <span class="hint-chip">ASR → DeepSeek → 讯飞播报</span>
+            <span class="hint-chip">资料回答附带来源依据</span>
           </div>
         </div>
 
         <div class="voice-recording-area">
-          <el-checkbox v-model="saveAudio" :disabled="isRecording || isConnected">保存本次录音和转写到我的历史（默认不保存）</el-checkbox>
-          <div class="recording-content" :class="{ 'recording-active': isRecording }">
+          <div class="recording-content" :class="{ 'recording-active': conversationActive }">
             <div class="recording-icon-wrapper">
               <div class="microphone-circle" :class="{ 'recording': isRecording }">
                 <span class="microphone-ring microphone-ring--outer"></span>
@@ -45,11 +44,43 @@
             </div>
             <div class="recording-text">
               <p class="main-text">{{ recordingStatusText }}</p>
-              <p class="support-text">点击麦克风开始录音，再次点击停止录音</p>
+              <p class="support-text">说完停顿约 1.4 秒会自动提交；也可再次点击手动停止</p>
               <p class="connection-status" :class="{ 'connected': isConnected, 'disconnected': !isConnected }">
                 WebSocket状态: {{ isConnected ? '已连接' : '未连接' }}
               </p>
             </div>
+
+            <section class="conversation-stream">
+              <header class="conversation-stream__header">
+                <div>
+                  <span>对话记录</span>
+                  <small>语音转写与智能回复会实时显示</small>
+                </div>
+                <el-button text size="small" :disabled="!chatMessages.length" @click="clearText">清空</el-button>
+              </header>
+              <div ref="chatScrollRef" class="conversation-stream__body">
+                <p v-if="!chatMessages.length" class="conversation-stream__empty">
+                  开始对话或直接输入文字，消息会显示在这里。
+                </p>
+                <article
+                  v-for="message in chatMessages"
+                  :key="message.id"
+                  class="chat-message"
+                  :class="'chat-message--' + message.role"
+                >
+                  <span class="chat-message__role">{{ message.role === 'user' ? '你' : 'AI 助手' }}</span>
+                  <p>{{ message.text }}</p>
+                </article>
+                <aside v-if="citationEntries.length" class="chat-citations">
+                  <strong>资料依据</strong>
+                  <span v-for="item in citationEntries" :key="item.id" :class="{ 'chat-citations__active': activeCitationIds.includes(item.id) }">
+                    {{ item.id }} · {{ item.title || '未命名资料' }}<template v-if="item.version"> · {{ item.version }}</template>
+                    <template v-if="item.validUntil"> · 有效至 {{ item.validUntil }}</template>
+                    <template v-if="item.page"> · 第 {{ item.page }} 页</template>
+                  </span>
+                </aside>
+              </div>
+            </section>
 
             <div class="waveform-shell" :class="{ 'waveform-shell--active': isRecording }">
               <span
@@ -67,14 +98,14 @@
               <el-button
                 type="primary"
                 size="large"
-                :class="{ 'recording': isRecording }"
+                :class="{ 'recording': conversationActive }"
                 @click="toggleRecording"
               >
                 <el-icon class="el-icon--left">
-                  <Microphone v-if="!isRecording" />
+                  <Microphone v-if="!conversationActive" />
                   <VideoPause v-else />
                 </el-icon>
-                {{ isRecording ? '停止录音' : '开始录音' }}
+                {{ conversationActive ? '结束对话' : (chatMessages.length ? '继续对话' : '开始对话') }}
               </el-button>
               <el-button
                 type="info"
@@ -84,33 +115,64 @@
               >
                 测试连接
               </el-button>
-            </div>
-          </div>
-        </div>
-
-        <voice-reply-panel :prompt="replyTranscript || finalTranscriptionText" :completion="replyCompletion"
-          :recording="isRecording" :recognizing="isConnected" />
-
-        <div class="transcription-area" v-if="transcriptionText">
-          <div class="result-header">
-            <div>
-              <span class="result-label">识别结果</span>
-              <h4>实时转写文本</h4>
-            </div>
-          </div>
-          <div class="transcription-content">
-            <div class="transcription-text">
-              {{ transcriptionText }}
-            </div>
-            <div class="transcription-actions">
-              <el-button type="success" @click="copyText">
-                <el-icon class="el-icon--left"><DocumentCopy /></el-icon>
-                复制文本
+              <el-button
+                v-if="conversationActive && !isRecording"
+                v-show="isAnswering"
+                type="warning"
+                size="large"
+                class="interrupt-btn"
+                @click="stopAssistantResponse"
+              >
+                <span class="stop-answer-icon" aria-hidden="true"></span>
+                停止回答
               </el-button>
-              <el-button type="warning" @click="clearText">
-                <el-icon class="el-icon--left"><Delete /></el-icon>
-                清空文本
+              <el-button
+                v-if="conversationActive && !isRecording && !isAnswering"
+                type="warning"
+                size="large"
+                class="interrupt-btn"
+                @click="interruptAndListen"
+              >
+                {{ readyForNextTurn ? '继续对话' : '开始聆听' }}
               </el-button>
+            </div>
+
+            <div class="inline-text-entry">
+              <div class="inline-text-entry__header">
+                <span>也可以直接输入问题</span>
+                <small>Enter 发送 · Shift + Enter 换行</small>
+              </div>
+              <div class="inline-text-entry__composer">
+                <el-input
+                  v-model="textPrompt"
+                  type="textarea"
+                  :autosize="{ minRows: 2, maxRows: 3 }"
+                  maxlength="4000"
+                  resize="none"
+                  placeholder="输入文字问题，不需要开始录音…"
+                  @keydown.enter.exact.prevent="sendTextPrompt"
+                />
+                <el-button
+                  v-if="isAnswering"
+                  type="primary"
+                  class="composer-stop-button"
+                  aria-label="停止回答"
+                  title="停止回答"
+                  @click="stopAssistantResponse"
+                >
+                  <span class="stop-answer-icon" aria-hidden="true"></span>
+                  停止
+                </el-button>
+                <el-button
+                  v-else
+                  type="primary"
+                  :loading="isTextSending"
+                  :disabled="!textPrompt.trim()"
+                  @click="sendTextPrompt"
+                >
+                  发送
+                </el-button>
+              </div>
             </div>
           </div>
         </div>
@@ -120,7 +182,7 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, ref, onUnmounted } from 'vue'
+import { computed, defineComponent, ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { Microphone, VideoPause, DocumentCopy, Delete } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
@@ -129,11 +191,16 @@ import {
   REALTIME_CHUNK_SIZE,
   WebSocketConnectMethod
 } from '@/libs/websocket-client'
+import type { Citation, RealtimeGatewayEvent } from '@/libs/websocket-client'
 import { AudioRecorder } from '@/libs/audio-recorder'
 import FlowBackgroundPanel from '@/components/FlowBackgroundPanel.vue'
 import QuickStartPanel from '@/components/QuickStartPanel.vue'
+import {
+  clearRealtimeHistory,
+  getRealtimeHistory,
+  saveRealtimeHistoryMessage
+} from '@/api/realtime-history'
 import store from '@/store'
-import VoiceReplyPanel from '@/components/VoiceReplyPanel.vue'
 
 /**
  * 实时语音识别组件
@@ -142,7 +209,6 @@ import VoiceReplyPanel from '@/components/VoiceReplyPanel.vue'
 export default defineComponent({
   name: 'RealtimeVoice',
   components: {
-    VoiceReplyPanel,
     FlowBackgroundPanel,
     QuickStartPanel,
     Microphone,
@@ -153,26 +219,60 @@ export default defineComponent({
   setup() {
     const router = useRouter()
     const isRecording = ref(false)
+    const conversationActive = ref(false)
+    const readyForNextTurn = ref(false)
     const finalTranscriptionText = ref('')
-    const replyTranscript = ref('')
-    const replyCompletion = ref(0)
     const draftTranscriptionText = ref('')
+    const assistantText = ref('')
+    const citations = ref<Record<string, Citation>>({})
+    const activeCitationIds = ref<string[]>([])
+    const segmentCitations = new Map<string, string[]>()
+    const textPrompt = ref('')
+    const isTextSending = ref(false)
+    const isAnswering = ref(false)
+    const chatMessages = ref<Array<{ id: string, role: 'user' | 'assistant', text: string }>>([])
+    const chatScrollRef = ref<HTMLElement | null>(null)
+    const assistantMessageIds = new Map<string, string>()
+    const persistedUserTurnIds = new Set<string>()
+    const persistedAssistantTurnIds = new Set<string>()
+    let chatMessageSequence = 0
     const recordingStatusText = ref('点击开始录音，系统将实时转换您的语音为文字')
     const isConnected = ref(false)
-    const saveAudio = ref(false)
-    let recordingAttempt = 0
-    let connectionOnly = false
-    let closeTimer: ReturnType<typeof setTimeout> | null = null
-    const clearCloseTimer = () => {
-      if (closeTimer !== null) clearTimeout(closeTimer)
-      closeTimer = null
-    }
+    let realtimeFailureReason = ''
     const createIdleWaveform = () => Array.from({ length: 28 }, (_, index) => {
       const centerOffset = Math.abs(index - 13.5)
       return Math.max(0.14, 0.24 - centerOffset * 0.007)
     })
     const waveformBars = ref<number[]>(createIdleWaveform())
     let waveformDecayTimer: number | null = null
+    let asrFinalWaitTimer: number | null = null
+    let nextListeningTimer: number | null = null
+    let startingListeningTurn = false
+    let speechDetected = false
+    let silenceStartedAt: number | null = null
+    let autoStopping = false
+    const speechThreshold = 0.018
+    const autoStopSilenceMs = 1400
+
+    const resetSpeechDetector = () => {
+      speechDetected = false
+      silenceStartedAt = null
+      autoStopping = false
+    }
+
+    const clearAsrFinalWait = () => {
+      if (asrFinalWaitTimer !== null) {
+        window.clearTimeout(asrFinalWaitTimer)
+        asrFinalWaitTimer = null
+      }
+    }
+
+    const clearNextListening = () => {
+      if (nextListeningTimer !== null) {
+        window.clearTimeout(nextListeningTimer)
+        nextListeningTimer = null
+      }
+    }
 
     const quickStartSteps = [
       {
@@ -203,9 +303,83 @@ export default defineComponent({
       }
       return finalText || draftText
     })
+    const citationEntries = computed(() => Object.entries(citations.value).map(([id, value]) => ({ id, ...value })))
 
     const normalizeText = (value: string): string => {
       return value.replace(/^[,，\s]+/, '').replace(/\s+/g, ' ').trim()
+    }
+
+    const scrollChatToBottom = () => {
+      void nextTick(() => {
+        const container = chatScrollRef.value
+        if (container) container.scrollTop = container.scrollHeight
+      })
+    }
+
+    const addChatMessage = (role: 'user' | 'assistant', text: string): string | null => {
+      const cleanText = text.trim()
+      if (!cleanText) return null
+      const id = 'message-' + (++chatMessageSequence)
+      chatMessages.value.push({ id, role, text: cleanText })
+      scrollChatToBottom()
+      return id
+    }
+
+    const saveHistoryMessage = async (role: 'user' | 'assistant', text: string, inputMode: 'text' | 'voice') => {
+      const content = text.trim()
+      if (!content) return
+      try {
+        await saveRealtimeHistoryMessage({ role, content, inputMode })
+      } catch (error) {
+        // History saving must never interrupt the live ASR/LLM/TTS path.
+        console.warn('保存实时对话记录失败', error)
+      }
+    }
+
+    const saveVoiceUserTurn = (turnId: string | undefined, text: string) => {
+      if (!turnId || persistedUserTurnIds.has(turnId)) return
+      persistedUserTurnIds.add(turnId)
+      void saveHistoryMessage('user', text, 'voice')
+    }
+
+    const saveAssistantTurn = (turnId: string | null | undefined) => {
+      if (!turnId || persistedAssistantTurnIds.has(turnId)) return
+      const messageId = assistantMessageIds.get(turnId)
+      const message = messageId ? chatMessages.value.find(item => item.id === messageId) : undefined
+      if (!message?.text.trim()) return
+      persistedAssistantTurnIds.add(turnId)
+      void saveHistoryMessage('assistant', message.text, 'text')
+    }
+
+    const loadChatHistory = async () => {
+      try {
+        const response = await getRealtimeHistory()
+        const history = response.data || []
+        if (chatMessages.value.length) return
+        chatMessages.value = history
+          .filter(item => (item.role === 'user' || item.role === 'assistant') && item.content?.trim())
+          .map(item => ({ id: `history-${item.id}`, role: item.role, text: item.content.trim() }))
+        scrollChatToBottom()
+      } catch (error) {
+        // An expired login is already handled by the normal API interceptor.
+        console.warn('加载实时对话记录失败', error)
+      }
+    }
+
+    const appendAssistantDelta = (turnId: string | undefined, delta: string) => {
+      if (!delta) return
+      const key = turnId || 'text-turn'
+      const messageId = assistantMessageIds.get(key)
+      const message = messageId
+        ? chatMessages.value.find(item => item.id === messageId)
+        : undefined
+      if (message) {
+        message.text += delta
+      } else {
+        const id = addChatMessage('assistant', delta)
+        if (id) assistantMessageIds.set(key, id)
+      }
+      scrollChatToBottom()
     }
 
     const isMeaningfulText = (value: string): boolean => {
@@ -267,15 +441,16 @@ export default defineComponent({
       }, 90)
     }
 
-    const updateWaveform = (audioData: ArrayBuffer) => {
+    const updateWaveform = (audioData: ArrayBuffer): number => {
       const pcm = new Int16Array(audioData)
       if (!pcm.length) {
-        return
+        return 0
       }
 
       const barCount = 28
       const blockSize = Math.max(1, Math.floor(pcm.length / barCount))
       const nextBars: number[] = []
+      let squareSum = 0
 
       for (let index = 0; index < barCount; index++) {
         const start = index * blockSize
@@ -289,8 +464,13 @@ export default defineComponent({
         }
         nextBars.push(Math.max(0.12, Math.min(1, 0.14 + peak * 1.9)))
       }
+      for (let index = 0; index < pcm.length; index++) {
+        const amplitude = pcm[index] / 32768
+        squareSum += amplitude * amplitude
+      }
 
       waveformBars.value = nextBars
+      return Math.sqrt(squareSum / pcm.length)
     }
 
     const mergeCommittedText = (currentText: string, cleanText: string): string => {
@@ -361,23 +541,64 @@ export default defineComponent({
       return `${trimmedCurrent}\n${cleanText}`
     }
 
+    const audioRecorder = new AudioRecorder()
+
     const wsConnectMethod = WebSocketConnectMethod({
+      errorHandle: (message: string) => {
+        realtimeFailureReason = message
+      },
+      gatewayEventHandle: (data: RealtimeGatewayEvent) => {
+        if (data.event === 'retrieval.completed') {
+          citations.value = data.citations || {}
+        } else if (data.event === 'llm.started' || data.event === 'llm.first_token') {
+          isAnswering.value = true
+        } else if (data.event === 'segment.ready') {
+          const key = `${data.turnId || ''}:${data.segmentSequence ?? 0}`
+          segmentCitations.set(key, data.citationIds || [])
+        } else if (data.event === 'asr.final') {
+          const finalText = normalizeText(data.text || '')
+          if (isMeaningfulText(finalText)) {
+            addChatMessage('user', finalText)
+            saveVoiceUserTurn(data.turnId, finalText)
+          }
+        } else if (data.event === 'llm.delta') {
+          isAnswering.value = true
+          assistantText.value += data.text || ''
+          appendAssistantDelta(data.turnId, data.text || '')
+          recordingStatusText.value = '正在生成并播报智能回复...'
+        } else if (data.event === 'tts.first_audio') {
+          isAnswering.value = true
+          recordingStatusText.value = '正在语音播报；需要补充时可点击“打断并继续说”'
+        } else if (data.event === 'playback.started') {
+          activeCitationIds.value = segmentCitations.get(`${data.turnId || ''}:${data.segmentSequence ?? 0}`) || []
+        } else if (data.event === 'playback.stopped') {
+          activeCitationIds.value = []
+        } else if (data.event === 'turn.completed') {
+          clearAsrFinalWait()
+          saveAssistantTurn(data.turnId)
+          recordingStatusText.value = '本轮回答已生成，等待播报结束...'
+        } else if (data.event === 'turn.cancelled') {
+          clearAsrFinalWait()
+          isAnswering.value = false
+          saveAssistantTurn(data.turnId)
+          recordingStatusText.value = '本轮已中断，已停止播报'
+        } else if (data.event === 'turn.failed') {
+          clearAsrFinalWait()
+          isAnswering.value = false
+          recordingStatusText.value = data.message || '本轮处理失败'
+          addChatMessage('assistant', '本轮未完成：' + recordingStatusText.value)
+          readyForNextTurn.value = true
+        }
+      },
+      playbackEndedHandle: () => {
+        isAnswering.value = false
+        if (!conversationActive.value) return
+        readyForNextTurn.value = true
+        recordingStatusText.value = '本轮播报完成，点击“继续对话”开始下一轮'
+      },
       msgHandle: (event: MessageEvent) => {
         try {
           const data = JSON.parse(event.data)
-          if (data.event === 'asr.failed') {
-            ++recordingAttempt
-            audioRecorder.stopRecording()
-            isRecording.value = false
-            replyTranscript.value = ''
-            draftTranscriptionText.value = ''
-            finishPendingRecording('识别失败，请重新录音；本次不会自动回答')
-            return
-          }
-          if (data.event === 'asr.completed') {
-            if (closeTimer !== null) finishPendingRecording('识别完成')
-            return
-          }
           const rectxt = data.text || ''
           const asrmodel = data.mode || ''
 
@@ -387,7 +608,7 @@ export default defineComponent({
           }
 
           if (asrmodel.includes('offline')) {
-            replyTranscript.value = mergeCommittedText(replyTranscript.value, cleanText)
+            clearAsrFinalWait()
             draftTranscriptionText.value = ''
             finalTranscriptionText.value = mergeCommittedText(finalTranscriptionText.value, cleanText)
             recordingStatusText.value = '已收到稳定识别结果'
@@ -401,7 +622,6 @@ export default defineComponent({
           }
 
           finalTranscriptionText.value = mergeCommittedText(finalTranscriptionText.value, cleanText)
-          replyTranscript.value = mergeCommittedText(replyTranscript.value, cleanText)
         } catch (error) {
           console.error('处理消息失败:', error)
         }
@@ -410,17 +630,15 @@ export default defineComponent({
         switch (state) {
           case 0: // 连接成功
             isConnected.value = true
-            recordingStatusText.value = 'WebSocket已连接，开始录音...'
             audioRecorder.setConnected(true)
             resetWaveform()
             startWaveformDecay()
             console.log('WebSocket连接成功')
-            // 连接成功后自动开始录音
-            if (!connectionOnly && isRecording.value) startRecording()
             break
           case 1: // 连接关闭
             isConnected.value = false
-            audioRecorder.setConnected(false)
+            conversationActive.value = false
+            isAnswering.value = false
             recordingStatusText.value = 'WebSocket连接已关闭'
             if (isRecording.value) {
               isRecording.value = false
@@ -430,9 +648,11 @@ export default defineComponent({
             break
           case 2: // 连接错误
             isConnected.value = false
-            audioRecorder.setConnected(false)
-            recordingStatusText.value = 'WebSocket连接错误，请检查服务器是否运行'
-            ElMessage.error('WebSocket连接失败，请检查服务器状态')
+            conversationActive.value = false
+            isAnswering.value = false
+            recordingStatusText.value = realtimeFailureReason || 'WebSocket连接错误，请检查服务器是否运行'
+            ElMessage.error(realtimeFailureReason || 'WebSocket连接失败，请检查服务器状态')
+            realtimeFailureReason = ''
             if (isRecording.value) {
               isRecording.value = false
               audioRecorder.stopRecording()
@@ -443,7 +663,26 @@ export default defineComponent({
       }
     })
 
-    const audioRecorder = new AudioRecorder()
+    const observeSpeechActivity = (level: number) => {
+      if (!isRecording.value || autoStopping) return
+      const now = Date.now()
+      if (level >= speechThreshold) {
+        speechDetected = true
+        silenceStartedAt = null
+        return
+      }
+      if (!speechDetected) return
+      if (silenceStartedAt === null) {
+        silenceStartedAt = now
+        return
+      }
+      if (now - silenceStartedAt >= autoStopSilenceMs) {
+        autoStopping = true
+        isRecording.value = false
+        recordingStatusText.value = '检测到你已说完，正在自动提交识别结果...'
+        stopRecording(true)
+      }
+    }
 
     const ensureUserLoggedIn = () => {
       const userId = Number(store.state.user?._id)
@@ -508,22 +747,43 @@ export default defineComponent({
 
       return false
     }
+
+    const startListeningTurn = async (interrupted = false) => {
+      if (!conversationActive.value || isRecording.value || startingListeningTurn) return
+      startingListeningTurn = true
+      clearNextListening()
+      resetSpeechDetector()
+      readyForNextTurn.value = false
+      isAnswering.value = false
+      draftTranscriptionText.value = ''
+      isRecording.value = true
+      recordingStatusText.value = interrupted
+        ? '已打断旧回答，正在听你说话...'
+        : '正在聆听，请直接说话...'
+      try {
+        await wsConnectMethod.wsStart()
+        await startRecording()
+      } catch (_) {
+        isRecording.value = false
+        conversationActive.value = false
+      } finally {
+        startingListeningTurn = false
+      }
+    }
+
     const startRecording = async () => {
-      const attempt = recordingAttempt
       try {
         await audioRecorder.startRecording((audioData: ArrayBuffer) => {
-          updateWaveform(audioData)
+          const level = updateWaveform(audioData)
+          observeSpeechActivity(level)
           if (wsConnectMethod.isConnected()) {
             wsConnectMethod.wsSend(audioData)
           }
         })
 
-        if (attempt !== recordingAttempt || !isRecording.value) return
         recordingStatusText.value = '正在录音中...请说话'
 
       } catch (error) {
-        if (attempt !== recordingAttempt) return
-        wsConnectMethod.wsStop()
         console.error('录音失败:', error)
         isRecording.value = false
         recordingStatusText.value = '录音失败，请检查麦克风权限'
@@ -536,28 +796,8 @@ export default defineComponent({
       }
     }
 
-    const finishPendingRecording = (status: string) => {
-      clearCloseTimer()
-      wsConnectMethod.wsStop()
-      isConnected.value = false
-      audioRecorder.setConnected(false)
-      recordingStatusText.value = status
-      if (status === '识别完成' && replyTranscript.value.trim()) replyCompletion.value += 1
-      resetWaveform()
-    }
-
-    const stopRecording = () => {
-      clearCloseTimer()
-      const attempt = ++recordingAttempt
+    const stopRecording = (automatically = false) => {
       const remainingData = audioRecorder.stopRecording()
-      if (!wsConnectMethod.isConnected()) {
-        wsConnectMethod.wsStop()
-        isConnected.value = false
-        audioRecorder.setConnected(false)
-        recordingStatusText.value = '已取消连接'
-        resetWaveform()
-        return
-      }
 
       if (remainingData && remainingData.byteLength > 0 && wsConnectMethod.isConnected()) {
         wsConnectMethod.wsSend(remainingData)
@@ -573,38 +813,89 @@ export default defineComponent({
 
       wsConnectMethod.wsSend(JSON.stringify(stopConfig))
 
-      recordingStatusText.value = '发送完数据，请等候，正在识别...'
-
-      closeTimer = setTimeout(() => {
-        if (attempt !== recordingAttempt) return
-        finishPendingRecording('等待识别完成超时，连接已关闭')
-      }, 10000)
+      clearAsrFinalWait()
+      recordingStatusText.value = automatically
+        ? '已自动结束录音，正在等待稳定识别结果...'
+        : '录音已停止，正在等待稳定识别结果...'
+      resetWaveform()
+      // FunASR must first return an offline final result. Do not claim that
+      // the LLM is working before this event has actually arrived.
+      asrFinalWaitTimer = window.setTimeout(() => {
+        if (!finalTranscriptionText.value && !draftTranscriptionText.value) {
+          recordingStatusText.value = '暂未收到识别结果：请说话至少 2 秒后再停止录音，然后重试'
+        }
+      }, 15_000)
     }
 
     const toggleRecording = async () => {
-      if (!isRecording.value && !ensureUserLoggedIn()) {
+      if (!conversationActive.value && !ensureUserLoggedIn()) {
         return
       }
 
-      isRecording.value = !isRecording.value
-      if (isRecording.value) {
-        replyTranscript.value = ''
-        clearCloseTimer()
-        const attempt = ++recordingAttempt
-        connectionOnly = false
-        isConnected.value = false
-        audioRecorder.setConnected(false)
+      if (!conversationActive.value) {
+        conversationActive.value = true
+        readyForNextTurn.value = false
+        isAnswering.value = false
+        clearNextListening()
+        // Ending or switching input mode must not erase the visible chat.
+        // Only the explicit “清空” button below is allowed to clear history.
         draftTranscriptionText.value = ''
-        recordingStatusText.value = '正在连接WebSocket...'
-        const result = await wsConnectMethod.wsStart({ saveAudio: saveAudio.value })
-        if (attempt !== recordingAttempt) return
-        if (result === 1) {
-        } else {
-          isRecording.value = false
-          recordingStatusText.value = '连接失败，请检查服务器状态'
-        }
+        activeCitationIds.value = []
+        await startListeningTurn()
       } else {
-        stopRecording()
+        conversationActive.value = false
+        isAnswering.value = false
+        clearAsrFinalWait()
+        clearNextListening()
+        if (isRecording.value) {
+          isRecording.value = false
+          audioRecorder.stopRecording()
+        }
+        wsConnectMethod.wsStop()
+        resetWaveform()
+        recordingStatusText.value = '对话已结束'
+      }
+    }
+
+    const interruptAndListen = async () => {
+      if (!conversationActive.value || isRecording.value) return
+      await startListeningTurn(true)
+    }
+
+    const stopAssistantResponse = () => {
+      if (!isAnswering.value) return
+      clearAsrFinalWait()
+      wsConnectMethod.wsInterrupt()
+      activeCitationIds.value = []
+      isAnswering.value = false
+      readyForNextTurn.value = true
+      recordingStatusText.value = '已停止本轮回答，可继续输入或开始下一轮对话'
+      ElMessage.info('已停止回答')
+    }
+
+    const sendTextPrompt = async () => {
+      const prompt = textPrompt.value.trim()
+      if (!prompt || !ensureUserLoggedIn() || isTextSending.value) return
+      isTextSending.value = true
+      clearAsrFinalWait()
+      if (isRecording.value) {
+        isRecording.value = false
+        audioRecorder.stopRecording()
+        resetWaveform()
+      }
+      resetSpeechDetector()
+      activeCitationIds.value = []
+      addChatMessage('user', prompt)
+      void saveHistoryMessage('user', prompt, 'text')
+      recordingStatusText.value = '正在发送文字问题并生成智能回复...'
+      try {
+        await wsConnectMethod.wsStartText(prompt)
+        isAnswering.value = true
+        textPrompt.value = ''
+      } catch (_) {
+        recordingStatusText.value = realtimeFailureReason || '文字问题发送失败'
+      } finally {
+        isTextSending.value = false
       }
     }
 
@@ -617,64 +908,79 @@ export default defineComponent({
       }
     }
 
-    const clearText = () => {
-      finalTranscriptionText.value = ''
-      draftTranscriptionText.value = ''
-      replyTranscript.value = ''
-      ElMessage.success('文本已清空')
+    const clearText = async () => {
+      try {
+        await clearRealtimeHistory()
+        finalTranscriptionText.value = ''
+        draftTranscriptionText.value = ''
+        assistantText.value = ''
+        citations.value = {}
+        activeCitationIds.value = []
+        segmentCitations.clear()
+        chatMessages.value = []
+        assistantMessageIds.clear()
+        persistedUserTurnIds.clear()
+        persistedAssistantTurnIds.clear()
+        ElMessage.success('该账号的对话记录已清空')
+      } catch (error) {
+        ElMessage.error('清空对话记录失败，请稍后重试')
+      }
     }
 
     const testConnection = async () => {
       if (!ensureUserLoggedIn()) {
         return
       }
-      if (isRecording.value) return
-      clearCloseTimer()
-      const attempt = ++recordingAttempt
-      connectionOnly = true
-      isConnected.value = false
-      audioRecorder.setConnected(false)
 
       recordingStatusText.value = '正在测试WebSocket连接...'
       ElMessage.info('正在测试WebSocket连接')
 
-      const result = await wsConnectMethod.wsStart()
-      if (attempt !== recordingAttempt) return
-      wsConnectMethod.wsStop()
-      isConnected.value = false
-      audioRecorder.setConnected(false)
-      connectionOnly = false
-      if (result === 1) {
-        recordingStatusText.value = '连接测试成功（未开启麦克风）'
+      try {
+        await wsConnectMethod.wsTest()
         ElMessage.success('WebSocket连接测试成功')
-      } else {
-        ElMessage.error('WebSocket连接测试失败')
+      } catch (_) {
+        // stateHandle has already displayed the precise safe failure reason.
       }
     }
 
+    onMounted(() => {
+      void loadChatHistory()
+    })
+
     onUnmounted(() => {
-      recordingAttempt += 1
-      clearCloseTimer()
+      clearAsrFinalWait()
+      clearNextListening()
+      conversationActive.value = false
       stopWaveformDecay()
-      isRecording.value = false
-      audioRecorder.stopRecording()
+      if (isRecording.value) {
+        stopRecording()
+      }
       audioRecorder.dispose()
       wsConnectMethod.wsStop()
     })
 
     return {
-      finalTranscriptionText,
-      replyTranscript,
-      replyCompletion,
       isRecording,
+      conversationActive,
+      readyForNextTurn,
+      chatMessages,
+      chatScrollRef,
       transcriptionText,
+      assistantText,
+      citationEntries,
+      activeCitationIds,
+      textPrompt,
+      isTextSending,
+      isAnswering,
       waveformBars,
       quickStartSteps,
       quickStartTips,
       recordingStatusText,
       isConnected,
-      saveAudio,
       toggleRecording,
+      interruptAndListen,
+      stopAssistantResponse,
+      sendTextPrompt,
       copyText,
       clearText,
       testConnection
@@ -860,17 +1166,213 @@ export default defineComponent({
   margin-bottom: 30px;
 }
 
+.conversation-stream {
+  width: min(720px, 100%);
+  margin: 0 0 18px;
+  overflow: hidden;
+  border: 1px solid rgba(126, 104, 225, 0.16);
+  border-radius: 16px;
+  background: rgba(248, 250, 255, 0.72);
+}
+
+.conversation-stream__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 46px;
+  padding: 9px 14px;
+  border-bottom: 1px solid rgba(126, 104, 225, 0.12);
+}
+
+.conversation-stream__header > div {
+  display: grid;
+  gap: 2px;
+}
+
+.conversation-stream__header span {
+  color: #43516d;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.conversation-stream__header small {
+  color: #8995ae;
+  font-size: 12px;
+}
+
+.conversation-stream__body {
+  height: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  padding: 14px;
+  scroll-behavior: smooth;
+}
+
+.conversation-stream__empty {
+  margin: auto;
+  color: #96a2ba;
+  font-size: 14px;
+}
+
+.chat-message {
+  display: grid;
+  gap: 5px;
+  max-width: 82%;
+}
+
+.chat-message--user {
+  align-self: flex-end;
+}
+
+.chat-message--assistant {
+  align-self: flex-start;
+}
+
+.chat-message__role {
+  color: #8390aa;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.chat-message--user .chat-message__role {
+  text-align: right;
+  color: #6877d9;
+}
+
+.chat-message p {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: #33415c;
+  font-size: 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-message--assistant p {
+  border: 1px solid rgba(126, 104, 225, 0.14);
+  border-top-left-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.chat-message--user p {
+  border-top-right-radius: 4px;
+  background: linear-gradient(135deg, #7663e8, #5c87ee);
+  color: #fff;
+}
+
+.chat-citations {
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(105, 91, 220, 0.08);
+  color: #65728d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.chat-citations strong {
+  color: #6658d2;
+  font-size: 12px;
+}
+
+.chat-citations__active {
+  background: rgba(89, 104, 255, 0.14);
+  color: #3f54d8 !important;
+  box-shadow: inset 0 0 0 1px rgba(89, 104, 255, 0.22);
+}
+
+.inline-text-entry {
+  width: min(720px, 100%);
+  display: grid;
+  gap: 9px;
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(126, 104, 225, 0.16);
+  border-radius: 16px;
+  background: rgba(248, 250, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.inline-text-entry__header,
+.inline-text-entry__composer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.inline-text-entry__header span {
+  color: #43516d;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.inline-text-entry__header small {
+  color: #7786a1;
+  font-size: 12px;
+}
+
+.inline-text-entry__composer :deep(.el-textarea__inner) {
+  min-height: 52px !important;
+  padding: 11px 12px;
+  border-radius: 10px;
+  background: rgba(246, 248, 255, 0.84);
+  border-color: rgba(126, 104, 225, 0.18);
+  box-shadow: none;
+}
+
+.inline-text-entry__composer .el-button {
+  align-self: stretch;
+  min-width: 72px;
+  margin: 0;
+  border-radius: 10px;
+}
+
+.inline-text-entry__composer .composer-stop-button {
+  min-width: 88px;
+  gap: 8px;
+  color: #fff;
+  border: 0;
+  background: linear-gradient(135deg, #4d82e7 0%, #2f66cc 100%);
+  box-shadow: 0 10px 20px rgba(47, 102, 204, 0.22);
+}
+
+.inline-text-entry__composer .composer-stop-button:hover,
+.inline-text-entry__composer .composer-stop-button:focus-visible {
+  color: #fff;
+  background: linear-gradient(135deg, #3f74db 0%, #255bbd 100%);
+}
+
+.stop-answer-icon {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 3px;
+  background: currentColor;
+}
+
+.interrupt-btn .stop-answer-icon {
+  margin-right: 2px;
+}
+
 .recording-content {
   width: 100%;
-  height: 550px;
+  min-height: 0;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(243, 248, 255, 0.96) 100%);
   border: 1px solid rgba(148, 128, 238, 0.2);
   border-radius: 18px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
-  padding: 40px;
+  padding: 32px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82), inset 0 0 0 1px rgba(148, 128, 238, 0.08);
   transition: all 0.3s ease;
 }
@@ -883,8 +1385,8 @@ export default defineComponent({
 
 /* 录音激活时的样式 - 区域变小 */
 .recording-content.recording-active {
-  height: 300px;
-  padding: 20px;
+  min-height: 0;
+  padding: 26px 30px;
 }
 
 .recording-content.recording-active .recording-icon-wrapper {
@@ -926,14 +1428,14 @@ export default defineComponent({
 
 /* 录音图标容器 */
 .recording-icon-wrapper {
-  margin-bottom: 32px;
+  margin-bottom: 14px;
 }
 
 /* 麦克风圆形容器 */
 .microphone-circle {
   position: relative;
-  width: 120px;
-  height: 120px;
+  width: 94px;
+  height: 94px;
   background: linear-gradient(135deg, rgba(124, 92, 255, 0.16) 0%, rgba(41, 121, 255, 0.22) 100%);
   border-radius: 24px;
   display: flex;
@@ -996,7 +1498,7 @@ export default defineComponent({
 }
 
 .microphone-icon {
-  font-size: 48px;
+  font-size: 40px;
   color: #7058e6;
   z-index: 1;
 }
@@ -1005,7 +1507,7 @@ export default defineComponent({
 .recording-text {
   text-align: center;
   max-width: 450px;
-  margin-bottom: 40px;
+  margin-bottom: 16px;
 }
 
 .waveform-shell {
@@ -1015,7 +1517,7 @@ export default defineComponent({
   align-items: flex-end;
   justify-content: center;
   gap: 6px;
-  margin: 0 0 30px;
+  margin: 0 0 18px;
   padding: 0 10px;
 }
 
@@ -1070,11 +1572,15 @@ export default defineComponent({
 /* 按钮容器 */
 .recording-button-wrapper {
   width: 100%;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .test-btn {
-  margin-left: 10px;
+  margin: 0;
 }
 
 /* 按钮样式 */
@@ -1142,6 +1648,27 @@ export default defineComponent({
   justify-content: center;
 }
 
+.citation-list {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 12px;
+  background: rgba(99, 102, 241, 0.06);
+  color: #44516a;
+  font-size: 14px;
+}
+
+.citation-item {
+  padding: 9px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.citation-item b {
+  color: #635bdb;
+  margin-right: 6px;
+}
+
 .result-header {
   display: flex;
   justify-content: space-between;
@@ -1204,6 +1731,16 @@ export default defineComponent({
 
   .transcription-actions {
     flex-direction: column;
+  }
+
+  .inline-text-entry__header,
+  .inline-text-entry__composer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .inline-text-entry__composer .el-button {
+    align-self: auto;
   }
 }
 
@@ -1274,7 +1811,8 @@ export default defineComponent({
 :global(html[data-auth-theme-mode='dark'] .hero-section h2),
 :global(html[data-auth-theme-mode='dark'] .main-text),
 :global(html[data-auth-theme-mode='dark'] .transcription-text),
-:global(html[data-auth-theme-mode='dark'] .result-header h4) {
+:global(html[data-auth-theme-mode='dark'] .result-header h4),
+:global(html[data-auth-theme-mode='dark'] .inline-text-entry__header span) {
   color: #eef3ff;
 }
 
@@ -1282,7 +1820,8 @@ export default defineComponent({
 :global(html[data-auth-theme-mode='dark'] .support-text),
 :global(html[data-auth-theme-mode='dark'] .recording-status),
 :global(html[data-auth-theme-mode='dark'] .recording-tip),
-:global(html[data-auth-theme-mode='dark'] .result-label) {
+:global(html[data-auth-theme-mode='dark'] .result-label),
+:global(html[data-auth-theme-mode='dark'] .inline-text-entry__header small) {
   color: rgba(218, 229, 255, 0.82);
 }
 
@@ -1318,6 +1857,22 @@ export default defineComponent({
 :global(html[data-auth-theme-mode='dark'] .transcription-area) {
   background: rgba(14, 22, 42, 0.84);
   border-color: rgba(138, 112, 236, 0.18);
+}
+
+:global(html[data-auth-theme-mode='dark'] .inline-text-entry) {
+  background: rgba(20, 27, 49, 0.88);
+  border-color: rgba(138, 112, 236, 0.3);
+}
+
+:global(html[data-auth-theme-mode='dark'] .chat-citations__active) {
+  background: rgba(121, 135, 255, 0.2);
+  color: #b8c5ff !important;
+}
+
+:global(html[data-auth-theme-mode='dark'] .inline-text-entry .el-textarea__inner) {
+  background: rgba(13, 18, 34, 0.9);
+  color: #eef3ff;
+  border-color: rgba(138, 112, 236, 0.22);
 }
 
 :global(html[data-auth-theme-mode='dark'] .transcription-text) {

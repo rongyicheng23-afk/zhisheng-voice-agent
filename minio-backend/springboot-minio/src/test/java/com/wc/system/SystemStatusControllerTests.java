@@ -8,6 +8,7 @@ import com.wc.config.MinioInfo;
 import com.wc.funasr.config.FunasrProperties;
 import com.wc.tts.config.TtsProperties;
 import com.wc.voiceprint.config.VoiceprintProperties;
+import com.wc.access.AccessControlService;
 class SystemStatusControllerTests {
  @Test void stoppedDependenciesProduceSanitizedCachedSnapshot() throws Exception {
   var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1",0),0);
@@ -20,7 +21,7 @@ class SystemStatusControllerTests {
   var asr=new FunasrProperties(); asr.setHttpBaseUrl(url); asr.setWsUrl(url.replace("http:","ws:"));
   var tts=new TtsProperties(); tts.setHttpBaseUrl(url);
   var sv=new VoiceprintProperties(); sv.setHttpBaseUrl(url);
-  var controller=new SystemStatusController(ds,minio,asr,tts,sv);
+  var controller=new SystemStatusController(ds,minio,asr,tts,sv,mock(AccessControlService.class));
   try {
    var response=controller.status(); var snapshot=response.getBody();
    assertEquals("DEGRADED",snapshot.status());

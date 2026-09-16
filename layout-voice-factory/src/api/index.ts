@@ -43,6 +43,31 @@ export const getRuntimeWsBaseUrl = () => {
   return `${wsProtocol}//${host}`;
 };
 
+/**
+ * The realtime orchestration gateway is deliberately separate from Spring
+ * Boot. During local development it listens on 18081; deployed environments
+ * should inject its public WSS base URL instead of relying on a port number.
+ */
+export const getRealtimeGatewayWsBaseUrl = () => {
+  const configuredGatewayUrl = (process.env.VUE_APP_REALTIME_GATEWAY_WS_BASE_URL || '').trim();
+  if (configuredGatewayUrl) {
+    return trimTrailingSlash(configuredGatewayUrl);
+  }
+
+  if (typeof window === 'undefined') {
+    return '';
+  }
+
+  const { hostname, port, protocol, host } = window.location;
+  const isLocalPreview = (hostname === 'localhost' || hostname === '127.0.0.1') && port === '8081';
+  if (isLocalPreview) {
+    return 'ws://localhost:18081';
+  }
+
+  const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${wsProtocol}//${host}`;
+};
+
 const http = axios.create({
   baseURL: resolveRuntimeHttpBaseUrl(), // 本地开发直连 18080，公网部署自动走当前域名
   withCredentials: false,

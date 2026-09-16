@@ -3,15 +3,18 @@ spring:
     name: springboot-minio
 
   datasource:
-    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/minio?characterEncoding=UTF-8&useSSL=false}
+    # 本地 MySQL 8 使用 caching_sha2_password 时需要允许 JDBC 获取公钥；
+    # 生产环境应改为启用 TLS 并配置证书，而不是沿用此本地开发默认值。
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/minio?characterEncoding=UTF-8&useSSL=false&allowPublicKeyRetrieval=true}
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:12345678}
+    # 密码只从终端环境变量读取，避免被写入项目或提交到仓库。
+    password: ${MYSQL_PASSWORD:}
     driver-class-name: ${MYSQL_DRIVER:com.mysql.cj.jdbc.Driver}
 
   sql:
     init:
       mode: ${SQL_INIT_MODE:always}
-      schema-locations: classpath:sql/t_user_audio_history.sql,classpath:sql/t_user_tts_history.sql,classpath:sql/t_user_voiceprint_history.sql,classpath:sql/t_user_speaker_profile.sql,classpath:sql/t_user_meeting_note.sql,classpath:sql/t_user_meeting_segment.sql,classpath:sql/t_user_meeting_revision.sql,classpath:sql/t_user_auth_schema.sql
+      schema-locations: classpath:sql/t_user_audio_history.sql,classpath:sql/t_user_tts_history.sql,classpath:sql/t_user_voiceprint_history.sql,classpath:sql/t_user_speaker_profile.sql,classpath:sql/t_user_meeting_note.sql,classpath:sql/t_user_meeting_segment.sql,classpath:sql/t_user_meeting_revision.sql,classpath:sql/t_user_auth_schema.sql,classpath:sql/t_knowledge_document.sql,classpath:sql/t_user_realtime_chat_history.sql,classpath:sql/t_user_role_assignment.sql
       data-locations: ${SQL_DATA_LOCATIONS:classpath:sql/t_user_auth_data.sql}
 
   servlet:
@@ -61,3 +64,14 @@ realtime:
     # Required whenever the Python realtime gateway is enabled. Do not use a
     # default here: the gateway must not accept browser traffic without it.
     internal-key: ${REALTIME_GATEWAY_INTERNAL_KEY:}
+
+app:
+  # Only for an empty local role table. Set this through the ignored local env file,
+  # never hard-code a personal account in the repository.
+  bootstrap-admin-username: ${APP_BOOTSTRAP_ADMIN_USERNAME:}
+
+knowledge:
+  rag:
+    base-url: ${RAG_SERVICE_URL:http://127.0.0.1:18082}
+    connect-timeout-ms: ${RAG_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${RAG_READ_TIMEOUT_MS:30000}

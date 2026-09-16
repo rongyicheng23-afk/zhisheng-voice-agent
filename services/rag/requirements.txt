@@ -1,0 +1,7 @@
+fastapi==0.141.1
+uvicorn==0.52.4
+# Python 3.10 shares the existing XTTS environment; newer runtimes need a
+# NumPy release that provides compatible wheels.
+numpy==1.22.0; python_version < "3.11"
+numpy>=1.26,<3; python_version >= "3.11"
+sentence-transformers==2.7.0
