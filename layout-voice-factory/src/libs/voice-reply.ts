@@ -1,6 +1,7 @@
 import { getRuntimeHttpBaseUrl } from '@/api'
 
 export interface ReplyUpdate {
+  citations?: Array<{ id: string, title: string, sourceVersion: string, publisher: string, sourceUrl: string, validFrom: string, validUntil: string, paragraph: number, quote: string }>
   status?: string
   text?: string
   busy?: boolean
@@ -39,14 +40,14 @@ export class VoiceReply {
     if (notify) this.update({ busy: false, status: '已停止回答' })
   }
 
-  async start(prompt: string) {
+  async start(prompt: string, answerMode: 'general' | 'knowledge' = 'general') {
     this.stop(false)
     const attempt = this.generation
     const current = () => attempt === this.generation
     const began = performance.now()
     const text = prompt.trim()
-    if (!text || text.length > 4000) {
-      this.update({ busy: false, status: '请输入 1–4000 字的提问' })
+    if (!text || text.length > (answerMode === 'knowledge' ? 1000 : 4000)) {
+      this.update({ busy: false, status: answerMode === 'knowledge' ? '资料模式请输入 1–1000 字的提问' : '请输入 1–4000 字的提问' })
       return
     }
     const token = localStorage.getItem('token') || sessionStorage.getItem('token')
@@ -54,7 +55,7 @@ export class VoiceReply {
       this.update({ busy: false, status: '请先登录' })
       return
     }
-    this.update({ busy: true, text: '', status: '正在连接语音回答', firstTokenMs: undefined, firstAudioMs: undefined })
+    this.update({ busy: true, text: '', citations: [], status: '正在连接语音回答', firstTokenMs: undefined, firstAudioMs: undefined })
     const fail = (status: string) => {
       if (!current()) return
       this.stop(false)
@@ -122,7 +123,7 @@ export class VoiceReply {
             sessionId = event.sessionId
             if (this.timer) clearTimeout(this.timer)
             this.timer = setTimeout(() => fail('本轮回答超时，请重试'), 10 * 60 * 1000)
-            send({ event: 'turn.start', prompt: text })
+            send({ event: 'turn.start', prompt: text, answerMode })
             this.update({ status: '正在生成回答' })
             return
           }
@@ -135,7 +136,11 @@ export class VoiceReply {
             player.port.postMessage({ event: 'turn.start', turnId: this.turnId })
           }
           if (event.turnId !== this.turnId) return
-          if (event.event === 'llm.first_token') this.update({ firstTokenMs: Math.round(performance.now() - began) })
+          if (event.event === 'turn.sources') {
+            if (!Array.isArray(event.citations) || event.citations.length > 3) throw new Error('sources')
+            this.update({ citations: event.citations, status: '正在朗读资料原文（不是模型结论）' })
+          }
+          else if (event.event === 'llm.first_token') this.update({ firstTokenMs: Math.round(performance.now() - began) })
           else if (event.event === 'llm.delta') {
             if (typeof event.text !== 'string' || answer.length + event.text.length > 32000) throw new Error('text')
             answer += event.text
@@ -149,7 +154,8 @@ export class VoiceReply {
           else if (event.event === 'turn.completed') {
             this.stop(false)
             this.update({ busy: false, status: '回答播放完成' })
-          } else if (event.event === 'turn.failed') fail('回答处理失败，请检查模型服务或稍后重试')
+          } else if (event.event === 'turn.failed') fail(answerMode === 'knowledge'
+            ? '资料检索或朗读失败，本轮不会改用无依据回答' : '回答处理失败，请检查模型服务或稍后重试')
           else if (event.event === 'turn.cancelled') fail('回答已取消')
         } catch (_) { fail('回答连接或音频格式异常，请重试') }
       }

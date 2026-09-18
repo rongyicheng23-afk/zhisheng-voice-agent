@@ -62,6 +62,29 @@ test('voice reply uses header auth and waits for ready before sending prompt', a
   } finally { f.reply.stop(false) }
 })
 
+test('knowledge mode is explicit and citations cannot leak from a stopped reply', async () => {
+  const f = fixture()
+  try {
+    await f.reply.start('报名材料', 'knowledge'); f.ready()
+    assert.equal(f.sockets[0].sent[0].answerMode, 'knowledge')
+    f.receive({ event: 'turn.sources', sessionId: 'session', turnId: 'turn', sequence: 2, citations: [{ id: 'source' }] })
+    assert.equal(f.updates.at(-1).citations[0].id, 'source')
+    const old = f.sockets[0]
+    await f.reply.start('新问题', 'general'); f.ready()
+    const count = f.updates.length
+    old.onmessage({ data: JSON.stringify({ event: 'turn.sources', sessionId: 'session', turnId: 'turn', sequence: 3, citations: [{ id: 'old' }] }) })
+    assert.equal(f.updates.length, count)
+    assert.ok(f.updates.some(u => Array.isArray(u.citations) && u.citations.length === 0))
+  } finally { f.reply.stop(false) }
+})
+
+test('knowledge question length is checked before connecting', async () => {
+  const f = fixture()
+  await f.reply.start('中'.repeat(1001), 'knowledge')
+  assert.equal(f.sockets.length, 0)
+  assert.match(f.updates.at(-1).status, /1000/)
+})
+
 test('stopping during ticket fetch cannot create a late socket', async () => {
   let release
   const f = fixture(() => new Promise(resolve => { release = resolve }))

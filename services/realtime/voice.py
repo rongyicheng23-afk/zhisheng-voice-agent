@@ -17,8 +17,10 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 try:
     from .turns import AudioChunk, RealtimeSession
+    from .knowledge import KnowledgeReply
 except ImportError:
     from turns import AudioChunk, RealtimeSession
+    from knowledge import KnowledgeReply
 
 
 class AudioDelivery:
@@ -118,7 +120,7 @@ def install_voice_route(app, settings, consume_ticket, llm_factory):
         try:
             await websocket.accept()
             reference = reference_audio()
-            if not settings.deepseek_api_key or reference is None:
+            if reference is None:
                 await websocket.send_json({"event": "session.unavailable",
                     "message": "语音回答未配置：需要服务器 DeepSeek 密钥及获授权的 TTS 参考音频"})
                 await websocket.close(code=1013)
@@ -154,6 +156,15 @@ def install_voice_route(app, settings, consume_ticket, llm_factory):
                     prompt = message.get("prompt")
                     if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= 4000:
                         raise ValueError("invalid prompt")
+                    mode = message.get('answerMode', 'general')
+                    if mode not in ('general', 'knowledge'):
+                        raise ValueError('invalid answer mode')
+                    if mode == 'knowledge':
+                        session.llm = KnowledgeReply(settings, user_id)
+                    elif not settings.deepseek_api_key:
+                        await websocket.send_json({'event': 'session.unavailable', 'message': 'DeepSeek 未配置'})
+                        await websocket.close(code=1013)
+                        return
                     started = True
                     await session.start(prompt)
                 elif session.active and message.get("turnId") == session.active["id"]:

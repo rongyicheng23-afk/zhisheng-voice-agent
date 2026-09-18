@@ -18,6 +18,7 @@ const routerHistory = createWebHistory()
 const router = createRouter({
   history: routerHistory,
   routes: [
+    { path: '/Knowledge', name: 'Knowledge', component: () => import('./views/Knowledge.vue') },
     {
       path: '/HomeResult',
       name: 'HomeResult',

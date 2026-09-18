@@ -265,6 +265,7 @@ async def health() -> JSONResponse:
         "voicePath": "/realtime/voice",
         "voiceSynthesisMode": "segmented",
         "voiceConfigured": bool(settings.deepseek_api_key and os.path.isfile(os.getenv("REALTIME_TTS_REFERENCE", ""))),
+        "knowledgeVoiceConfigured": bool(settings.internal_key and os.path.isfile(os.getenv("REALTIME_TTS_REFERENCE", ""))),
         "voiceInferenceCancellation": False,
     })
 

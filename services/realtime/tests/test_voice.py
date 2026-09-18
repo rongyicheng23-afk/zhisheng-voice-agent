@@ -128,3 +128,40 @@ class VoiceSocketTests(unittest.TestCase):
         with patch("services.realtime.voice.reference_audio", return_value=None):
             with TestClient(self.app) as client, self.connect(client) as ws:
                 self.assertEqual("session.unavailable", ws.receive_json()["event"])
+
+    def test_knowledge_socket_uses_authenticated_user_without_deepseek(self):
+        from services.realtime.knowledge import KnowledgeReply
+        from services.realtime.tests.test_knowledge import citation
+        requests = []
+        def search(request):
+            requests.append(request)
+            return httpx.Response(200, json={'citations': [citation()]})
+        original = KnowledgeReply.__init__
+        def init(adapter, settings, user_id):
+            original(adapter, settings, user_id, httpx.MockTransport(search))
+        class ForbiddenModel:
+            def __init__(self, settings): pass
+            async def stream_reply(self, *args, **kwargs):
+                raise AssertionError('knowledge mode must not call DeepSeek')
+                yield ''
+        async def consume(*args): return 7
+        app = FastAPI()
+        settings = SimpleNamespace(allowed_origins={'http://localhost:8081'}, deepseek_api_key='',
+                                   spring_boot_url='http://business', internal_key='fixture')
+        install_voice_route(app, settings, consume, ForbiddenModel)
+        with patch.object(KnowledgeReply, '__init__', init), TestClient(app) as client, self.connect(client) as ws:
+            self.assertEqual('session.ready', ws.receive_json()['event'])
+            ws.send_json({'event': 'turn.start', 'prompt': '报名材料', 'answerMode': 'knowledge', 'userId': 999})
+            sources = []
+            while True:
+                event = ws.receive_json()
+                if event['event'] == 'turn.sources': sources = event['citations']
+                if event['event'] == 'audio.chunk':
+                    self.assertTrue(sources)
+                    ws.send_json({'event': 'audio.ack', 'turnId': event['turnId'], 'sequence': event['sequence']})
+                if event['event'] == 'audio.completed': ws.send_json({'event': 'playback.completed', 'turnId': event['turnId']})
+                if event['event'] in ('turn.failed', 'turn.completed'):
+                    self.assertEqual('turn.completed', event['event'])
+                    break
+        import json
+        self.assertEqual(7, json.loads(requests[0].content)['userId'])

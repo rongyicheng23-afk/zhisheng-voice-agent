@@ -1,8 +1,8 @@
 """P0 orchestration core. Adapters must own/close their upstream streams.
 
 No credentials, mock answers, HTTP authentication or public endpoint live here.
-The future authenticated gateway supplies adapters. Citation retrieval is not
-implemented here; segment citationIds remain empty rather than fabricated.
+The authenticated gateway supplies adapters. Evidence adapters may prepare
+authorised sources and map exact spoken text spans to citation IDs.
 """
 import asyncio
 from dataclasses import dataclass
@@ -112,6 +112,10 @@ class RealtimeSession:
         chunker = SemanticChunker()
 
         async def produce():
+            prepare = getattr(self.llm, 'prepare', None)
+            if prepare:
+                citations = await prepare(prompt)
+                await self._emit(turn, 'turn.sources', citations=citations, answerMode='extractive')
             iterator = self.llm.stream(prompt).__aiter__()
             next_token = None
             first = True
@@ -164,8 +168,9 @@ class RealtimeSession:
                 if segment is None:
                     break
                 segment_sequence += 1
+                citation_ids = getattr(self.llm, 'citation_ids', lambda text: [])(segment.text)
                 await self._emit(turn, 'segment.ready', segmentSequence=segment_sequence,
-                                 text=segment.text, boundaryReason=segment.reason, citationIds=[])
+                                 text=segment.text, boundaryReason=segment.reason, citationIds=citation_ids)
                 chunk_sequence = 0
                 stream = self.tts.stream(segment.text)
                 try:
