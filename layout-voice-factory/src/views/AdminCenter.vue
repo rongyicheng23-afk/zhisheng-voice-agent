@@ -17,6 +17,7 @@
           <section v-if="profile.canManageUsers" class="admin-card users-card">
             <div class="section-head"><div><strong>用户与角色</strong><small>普通用户只使用业务功能；高级角色按职责授予，至少保留一名超级管理员。</small></div><el-button text :loading="usersLoading" @click="loadUsers">刷新</el-button></div>
             <el-table :data="users" empty-text="暂无用户">
+              <el-table-column prop="id" label="用户 ID" width="100" />
               <el-table-column prop="username" label="账号" min-width="140" />
               <el-table-column prop="nickname" label="昵称" min-width="140" />
               <el-table-column label="角色" min-width="360"><template #default="scope"><el-select v-model="scope.row.roles" multiple collapse-tags collapse-tags-tooltip placeholder="选择角色" @change="saveRoles(scope.row)"><el-option v-for="role in availableRoles" :key="role" :label="roleLabel(role)" :value="role" /></el-select></template></el-table-column>

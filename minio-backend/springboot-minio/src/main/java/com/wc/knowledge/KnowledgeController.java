@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
+import java.util.List;
 
 /** User-facing knowledge-base endpoints. The LoginInterceptor protects this path. */
 @RestController
@@ -34,12 +35,14 @@ public class KnowledgeController {
             @RequestParam(value = "source", required = false) String source,
             @RequestParam(value = "version", required = false) String version,
             @RequestParam(value = "validFrom", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate validFrom,
-            @RequestParam(value = "validUntil", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate validUntil
+            @RequestParam(value = "validUntil", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate validUntil,
+            @RequestParam(value = "visibility", defaultValue = "PRIVATE") String visibility,
+            @RequestParam(value = "teamMemberId", required = false) List<Integer> teamMemberIds
     ) {
         try {
             Integer userId = AuthContextUtil.currentUserId();
             access.requireKnowledgeManager(userId);
-            return R.OK(service.upload(userId, file, title, source, version, validFrom, validUntil));
+            return R.OK(service.upload(userId, file, title, source, version, validFrom, validUntil, visibility, teamMemberIds));
         } catch (AccessDeniedException error) {
             return new R(403, error.getMessage(), null);
         } catch (IllegalArgumentException error) {
@@ -121,6 +124,19 @@ public class KnowledgeController {
         } catch (Exception error) {
             return new R(503, "RAG 索引服务不可用，请确认服务和向量模型已启动", null);
         }
+    }
+
+    @PostMapping("/documents/{documentId}/visibility")
+    public R updateVisibility(
+            @PathVariable Long documentId,
+            @RequestParam("visibility") String visibility,
+            @RequestParam(value = "teamMemberId", required = false) List<Integer> teamMemberIds
+    ) {
+        try {
+            Integer userId = AuthContextUtil.currentUserId(); access.requireKnowledgeManager(userId);
+            return R.OK(service.updateVisibility(userId, documentId, visibility, teamMemberIds));
+        } catch (AccessDeniedException error) { return new R(403, error.getMessage(), null);
+        } catch (IllegalArgumentException error) { return new R(400, error.getMessage(), null); }
     }
 
     @GetMapping("/documents")

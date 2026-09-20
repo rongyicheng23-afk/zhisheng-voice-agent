@@ -29,3 +29,22 @@ CREATE TABLE IF NOT EXISTS t_knowledge_chunk (
     UNIQUE KEY uk_knowledge_chunk_document_no (document_id, chunk_no),
     KEY idx_knowledge_chunk_document (document_id)
 ) COMMENT='RAG知识资料切片';
+
+-- Kept in separate tables so databases created before visibility support keep
+-- working without a destructive ALTER. Missing rows are treated as PRIVATE.
+CREATE TABLE IF NOT EXISTS t_knowledge_document_visibility (
+    document_id BIGINT PRIMARY KEY COMMENT '知识资料ID',
+    visibility_scope VARCHAR(16) NOT NULL DEFAULT 'PRIVATE' COMMENT 'PRIVATE TEAM PUBLIC',
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_knowledge_visibility_scope (visibility_scope)
+) COMMENT='知识资料可见范围；由后端检索时强制校验';
+
+CREATE TABLE IF NOT EXISTS t_knowledge_document_access (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    document_id BIGINT NOT NULL,
+    user_id INT NOT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_knowledge_document_access (document_id, user_id),
+    KEY idx_knowledge_access_user (user_id),
+    KEY idx_knowledge_access_document (document_id)
+) COMMENT='TEAM资料的显式授权成员';

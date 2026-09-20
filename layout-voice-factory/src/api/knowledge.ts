@@ -10,6 +10,8 @@ export type KnowledgeDocument = {
   validUntil?: string | null
   filename: string
   chunkCount: number
+  visibility: 'PRIVATE' | 'TEAM' | 'PUBLIC' | string
+  teamMemberIds?: number[]
 }
 
 export type KnowledgeCitation = {
@@ -48,6 +50,13 @@ export const restoreKnowledgeDocumentToDraft = (documentId: number) =>
 
 export const reindexKnowledgeDocument = (documentId: number) =>
   http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/reindex`)
+
+export const updateKnowledgeDocumentVisibility = (documentId: number, visibility: string, teamMemberIds: number[]) => {
+  const params = new URLSearchParams()
+  params.append('visibility', visibility)
+  teamMemberIds.forEach(id => params.append('teamMemberId', String(id)))
+  return http.post<any, BackendResponse<KnowledgeDocument>>(`/api/knowledge/documents/${documentId}/visibility`, params)
+}
 
 export const getKnowledgeDocuments = () =>
   http.get<any, BackendResponse<KnowledgeDocument[]>>('/api/knowledge/documents')
