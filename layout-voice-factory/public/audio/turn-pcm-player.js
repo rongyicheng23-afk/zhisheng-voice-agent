@@ -1,4 +1,5 @@
-/* PCM16 little-endian mono playback primitive. Integration is not enabled yet.
+/* PCM16 little-endian mono playback. Segment markers follow consumed samples,
+ * not network arrival or synthesis completion.
  * The owning AudioContext must use the negotiated sampleRate.
  * Never pass Opus/WAV container bytes directly to this processor.
  */
@@ -17,6 +18,8 @@ class TurnPcmPlayer extends AudioWorkletProcessor {
     this.ended = false
     this.underflow = false
     this.reportFrames = 0
+    this.readFrames = this.writtenFrames = 0
+    this.markers = []
     this.port.onmessage = ({ data }) => this.receive(data)
   }
 
@@ -26,6 +29,8 @@ class TurnPcmPlayer extends AudioWorkletProcessor {
     this.segmentSequence = this.chunkSequence = this.sequence = 0
     this.started = this.ended = this.underflow = false
     this.reportFrames = 0
+    this.readFrames = this.writtenFrames = 0
+    this.markers = []
   }
 
   notify(event, extra = {}) {
@@ -79,11 +84,19 @@ class TurnPcmPlayer extends AudioWorkletProcessor {
       return
     }
     const pcm = new DataView(message.pcm)
+    if (chunk === 1) {
+      if (this.markers.length >= 256) {
+        this.fail('SEGMENT_MARKER_OVERFLOW')
+        return
+      }
+      this.markers.push({ frame: this.writtenFrames, segmentSequence: segment })
+    }
     for (let index = 0; index < count; index++) {
       this.samples[this.writeIndex] = pcm.getInt16(index * 2, true) / 32768
       this.writeIndex = (this.writeIndex + 1) % this.samples.length
     }
     this.size += count
+    this.writtenFrames += count
     this.sequence = message.sequence
     this.segmentSequence = segment
     this.chunkSequence = chunk
@@ -100,11 +113,17 @@ class TurnPcmPlayer extends AudioWorkletProcessor {
       this.notify('playback.started')
     }
     const count = Math.min(output.length, this.size)
+    while (count > 0 && this.markers.length && this.markers[0].frame < this.readFrames + count) {
+      const marker = this.markers.shift()
+      this.notify('playback.segment', { segmentSequence: marker.segmentSequence,
+        frameOffset: Math.max(0, marker.frame - this.readFrames) })
+    }
     for (let index = 0; index < count; index++) {
       output[index] = this.samples[this.readIndex]
       this.readIndex = (this.readIndex + 1) % this.samples.length
     }
     this.size -= count
+    this.readFrames += count
     this.reportFrames += output.length
     if (this.reportFrames >= sampleRate / 10) {
       this.reportFrames = 0

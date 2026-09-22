@@ -5,6 +5,35 @@ const fs = require('node:fs')
 const vm = require('node:vm')
 const path = require('node:path')
 
+test('segment marker queue is bounded even for tiny audio segments', () => {
+  const f = fixture()
+  for (let i = 1; i <= 257; i++) f.send(f.chunk({ sequence: i, segmentSequence: i }))
+  assert.equal(f.messages.at(-1).code, 'SEGMENT_MARKER_OVERFLOW')
+  assert.equal(f.player.size, 0)
+})
+
+test('source markers follow rendered frames, not queued audio, and are flushed on interrupt', () => {
+  const f = fixture()
+  f.send(f.chunk({ pcm: new Int16Array(256).buffer }))
+  f.send(f.chunk({ sequence: 2, segmentSequence: 2, pcm: new Int16Array(128).buffer }))
+  const markers = () => f.messages.filter(x => x.event === 'playback.segment').map(x => x.segmentSequence)
+  assert.deepEqual(markers(), [])
+  f.render(); assert.deepEqual(markers(), [1])
+  f.render(); assert.deepEqual(markers(), [1])
+  f.render(); assert.deepEqual(markers(), [1, 2])
+  f.send(f.chunk({ sequence: 3, segmentSequence: 3 }))
+  f.send({ event: 'turn.interrupt', turnId: 'current' })
+  f.render(); assert.deepEqual(markers(), [1, 2])
+})
+
+test('underflow and continuation chunks do not duplicate segment markers', () => {
+  const f = fixture()
+  f.send(f.chunk()); f.render(); f.render()
+  f.send(f.chunk({ sequence: 2, chunkSequence: 2 })); f.render()
+  f.send(f.chunk({ sequence: 3, segmentSequence: 2 })); f.render()
+  assert.deepEqual(f.messages.filter(x => x.event === 'playback.segment').map(x => x.segmentSequence), [1, 2])
+})
+
 function fixture() {
   let Processor
   const messages = []

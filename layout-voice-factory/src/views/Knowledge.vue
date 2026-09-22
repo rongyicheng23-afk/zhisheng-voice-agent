@@ -58,6 +58,14 @@ export default defineComponent({
     const busy = ref(false), status = ref(''), question = ref(''), searchMessage = ref('')
     const documents = ref<KnowledgeDocument[]>([]), hits = ref<KnowledgeCitation[]>([])
     let alive = true, fileAttempt = 0
+    let pendingSave: { fingerprint: string, requestId: string } | null = null
+    const requestId = () => {
+      const bytes = crypto.getRandomValues(new Uint8Array(16))
+      bytes[6] = (bytes[6] & 15) | 64
+      bytes[8] = (bytes[8] & 63) | 128
+      const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+      return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-')
+    }
     const report = (e: unknown) => { if (alive) status.value = e instanceof Error ? e.message : '操作失败' }
     const refresh = async () => {
       if (busy.value) return
@@ -65,9 +73,10 @@ export default defineComponent({
       try { const data = await knowledgeRequest<KnowledgeDocument[]>('/documents'); if (alive) documents.value = data }
       catch (e) { report(e) } finally { if (alive) busy.value = false }
     }
-    const newDocument = () => { if (!busy.value) { ++fileAttempt; Object.assign(form, empty()) } }
+    const newDocument = () => { if (!busy.value) { ++fileAttempt; pendingSave = null; Object.assign(form, empty()) } }
     const newVersion = (doc: KnowledgeDocument) => {
       if (busy.value) return
+      pendingSave = null
       ++fileAttempt
       Object.assign(form, { title: doc.title, sourceUrl: doc.sourceUrl, publisher: doc.publisher,
         validFrom: doc.validFrom, validUntil: doc.validUntil, content: doc.content, sourceVersion: '', seriesId: doc.seriesId })
@@ -79,12 +88,16 @@ export default defineComponent({
           || form.validUntil < form.validFrom) { status.value = '请填写必填项和有效的日期范围'; return }
       busy.value = true
       try {
-        const doc = await knowledgeRequest<KnowledgeDocument>('/documents', { ...form })
+        const fingerprint = JSON.stringify(form)
+        if (!pendingSave || pendingSave.fingerprint !== fingerprint)
+          pendingSave = { fingerprint, requestId: requestId() }
+        const doc = await knowledgeRequest<KnowledgeDocument>('/documents', { ...form, requestId: pendingSave.requestId })
         if (!alive) return
         ++fileAttempt
-        documents.value = [doc, ...documents.value]
+        documents.value = [doc, ...documents.value.filter(item => item.id !== doc.id)]
+        pendingSave = null
         Object.assign(form, empty())
-        status.value = '草稿已保存，核对后点击“发布”才参与检索'
+        status.value = doc.status === 'DRAFT' ? '草稿已保存，核对后点击“发布”才参与检索' : '资料已保存；重试返回已有版本，保留其当前发布状态'
       } catch (e) { report(e) } finally { if (alive) busy.value = false }
     }
     const changeStatus = async (doc: KnowledgeDocument, next: string) => {

@@ -5,6 +5,29 @@ const path = require('node:path')
 const vm = require('node:vm')
 const ts = require('typescript')
 
+test('citation highlight waits for playback and clears on interrupt', async () => {
+  const f = fixture()
+  try {
+    await f.reply.start('资料', 'knowledge'); f.ready()
+    const receive = event => f.receive({ sessionId: 'session', turnId: 'turn', ...event })
+    receive({ event: 'turn.sources', sequence: 2, citations: [{ id: 'source' }] })
+    receive({ event: 'segment.ready', sequence: 3, segmentSequence: 1, citationIds: ['source'] })
+    assert.ok(!f.updates.some(x => x.activeCitationIds?.includes('source')))
+    f.players[0].port.onmessage({ data: { event: 'playback.segment', turnId: 'turn', segmentSequence: 1 } })
+    assert.equal(f.updates.at(-1).activeCitationIds[0], 'source')
+    f.reply.stop()
+    assert.ok(f.updates.filter(x => x.activeCitationIds).at(-1).activeCitationIds.length === 0)
+  } finally { f.reply.stop(false) }
+})
+
+test('unknown citation fails closed before playback', async () => {
+  const f = fixture()
+  await f.reply.start('资料', 'knowledge'); f.ready()
+  f.receive({ event: 'turn.sources', sessionId: 'session', turnId: 'turn', sequence: 2, citations: [] })
+  f.receive({ event: 'segment.ready', sessionId: 'session', turnId: 'turn', sequence: 3, segmentSequence: 1, citationIds: ['invented'] })
+  assert.equal(f.sockets[0].readyState, 3)
+})
+
 function fixture(fetchOverride) {
   const sockets = [], players = [], requests = [], updates = []
   class Socket {

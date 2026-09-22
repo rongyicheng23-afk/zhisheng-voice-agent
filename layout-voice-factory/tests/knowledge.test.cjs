@@ -1,11 +1,27 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm'), ts = require('typescript')
+
+test('ambiguous save retries reuse request ID; changed content uses a new ID', async () => {
+  const { page, requests } = setup(async () => { throw new Error('network lost') })
+  await page.saveDraft(); await page.saveDraft()
+  assert.equal(requests[0].body.requestId, requests[1].body.requestId)
+  page.form.content += '已更新'
+  await page.saveDraft()
+  assert.notEqual(requests[1].body.requestId, requests[2].body.requestId)
+})
+
+test('replayed save does not duplicate a document already loaded by refresh', async () => {
+  const { page } = setup(async () => ({ id: 'existing', status: 'DRAFT' }))
+  page.documents.value = [{ id: 'existing' }]
+  await page.saveDraft()
+  assert.equal(page.documents.value.length, 1)
+})
 function setup(handler = async () => ({})) {
   const requests = [], exports = {}
   const script = fs.readFileSync(path.join(__dirname, '../src/views/Knowledge.vue'), 'utf8').match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
   const code = ts.transpileModule(script, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText
-  vm.runInNewContext(code, { exports, TextDecoder, require: name => name === 'vue'
+  vm.runInNewContext(code, { exports, TextDecoder, crypto: require('node:crypto').webcrypto, require: name => name === 'vue'
     ? { defineComponent: x => x, reactive: x => x, ref: value => ({ value }), onMounted() {}, onBeforeUnmount() {} }
     : { knowledgeRequest: async (url, body) => { requests.push({ url, body }); return handler(url, body) } } })
   const page = exports.default.setup()

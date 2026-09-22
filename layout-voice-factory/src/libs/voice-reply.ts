@@ -1,6 +1,7 @@
 import { getRuntimeHttpBaseUrl } from '@/api'
 
 export interface ReplyUpdate {
+  activeCitationIds?: string[]
   citations?: Array<{ id: string, title: string, sourceVersion: string, publisher: string, sourceUrl: string, validFrom: string, validUntil: string, paragraph: number, quote: string }>
   status?: string
   text?: string
@@ -37,6 +38,7 @@ export class VoiceReply {
     if (this.context) void this.context.close().catch(() => undefined)
     this.context = null
     this.turnId = ''
+    this.update({ activeCitationIds: [] })
     if (notify) this.update({ busy: false, status: '已停止回答' })
   }
 
@@ -95,6 +97,9 @@ export class VoiceReply {
       const socket = new WebSocket(url.toString())
       this.socket = socket
       let sessionId = '', sequence = 0, answer = '', pendingAck = 0, firstAudio = true
+      const sourceIds = new Set<string>()
+      const segments = new Map<number, string[]>()
+      let lastSegment = 0, playedSegment = 0, sourcesReceived = false
       const send = (event: object) => {
         if (current() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(event))
       }
@@ -106,7 +111,15 @@ export class VoiceReply {
         } else if (data.event === 'playback.started' && firstAudio) {
           firstAudio = false
           this.update({ firstAudioMs: Math.round(performance.now() - began), status: '正在播放（分段合成）' })
+        } else if (data.event === 'playback.segment') {
+          if (!Number.isSafeInteger(data.segmentSequence) || data.segmentSequence !== playedSegment + 1 || !segments.has(data.segmentSequence)) {
+            fail('播放段落与来源不一致，请重新提问'); return
+          }
+          playedSegment = data.segmentSequence
+          this.update({ activeCitationIds: segments.get(playedSegment) })
+          segments.delete(playedSegment)
         } else if (data.event === 'playback.completed') {
+          this.update({ activeCitationIds: [] })
           send({ event: 'playback.completed', turnId: this.turnId })
         } else if (data.event === 'playback.failed') fail('音频播放失败，请重新提问')
       }
@@ -137,8 +150,20 @@ export class VoiceReply {
           }
           if (event.turnId !== this.turnId) return
           if (event.event === 'turn.sources') {
-            if (!Array.isArray(event.citations) || event.citations.length > 3) throw new Error('sources')
+            if (sourcesReceived || lastSegment || !Array.isArray(event.citations) || event.citations.length > 3) throw new Error('sources')
+            sourcesReceived = true
+            for (const source of event.citations) {
+              if (!source || typeof source.id !== 'string' || !source.id || sourceIds.has(source.id)) throw new Error('sources')
+              sourceIds.add(source.id)
+            }
             this.update({ citations: event.citations, status: '正在朗读资料原文（不是模型结论）' })
+          }
+          else if (event.event === 'segment.ready') {
+            const ids = event.citationIds || []
+            if (event.segmentSequence !== lastSegment + 1 || segments.size >= 256 ||
+                (answerMode === 'knowledge' && !sourcesReceived) || !Array.isArray(ids) || ids.length > 3 ||
+                new Set(ids).size !== ids.length || ids.some((id: string) => !sourceIds.has(id))) throw new Error('segment')
+            segments.set(++lastSegment, ids)
           }
           else if (event.event === 'llm.first_token') this.update({ firstTokenMs: Math.round(performance.now() - began) })
           else if (event.event === 'llm.delta') {

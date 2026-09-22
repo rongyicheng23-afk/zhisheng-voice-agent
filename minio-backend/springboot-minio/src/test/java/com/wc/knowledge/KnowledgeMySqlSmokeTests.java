@@ -24,9 +24,13 @@ class KnowledgeMySqlSmokeTests {
         tx.execute(status -> {
             status.setRollbackOnly();
             var today = LocalDate.now(ZoneId.of("Asia/Shanghai"));
-            var draft = new KnowledgeService.Draft("自动化临时资料", "", "测试", "fixture", today.minusDays(1), today.plusDays(1), "报名材料测试原文。", null);
+            var draft = new KnowledgeService.Draft("自动化临时资料", "", "测试", "fixture", today.minusDays(1), today.plusDays(1), "报名材料测试原文。", null, java.util.UUID.randomUUID().toString());
             var doc = service.create(owner, draft);
             service.transition(owner, doc.id(), "PUBLISHED", 1);
+            var retry = service.create(owner, draft);
+            assertEquals(doc.id(), retry.id());
+            assertEquals("PUBLISHED", retry.status());
+            assertEquals(1, service.list(owner).size());
             assertFalse(service.search(owner, "报名材料").citations().isEmpty());
             assertTrue(service.search(owner - 1, "报名材料").citations().isEmpty());
             service.transition(owner, doc.id(), "WITHDRAWN", 2);

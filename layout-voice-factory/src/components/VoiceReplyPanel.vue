@@ -17,8 +17,10 @@
       （从发送提问开始计时）
     </p>
     <div class="reply-text">{{ state.text }}</div>
-    <article v-for="(source, index) in state.citations || []" :key="source.id" class="reply-source">
+    <article v-for="(source, index) in state.citations || []" :key="source.id" class="reply-source"
+      :class="{ 'reply-source--active': state.activeCitationIds?.includes(source.id) }">
       <h4>来源 {{ index + 1 }}：{{ source.title }} · {{ source.sourceVersion }}</h4>
+      <p v-if="state.activeCitationIds?.includes(source.id)">正在播放引用此来源的段落</p>
       <p>{{ source.publisher }} · 有效期 {{ source.validFrom }} 至 {{ source.validUntil }} · 第 {{ source.paragraph }} 段</p>
       <blockquote>{{ source.quote }}</blockquote>
       <a v-if="/^https?:\/\//.test(source.sourceUrl)" :href="source.sourceUrl" target="_blank" rel="noopener noreferrer">查看发布来源</a>
@@ -60,4 +62,6 @@ export default defineComponent({
 .voice-reply-panel { margin-top: 24px; padding: 20px; border: 1px solid #ccd6e0; border-radius: 14px; }
 .reply-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .reply-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.reply-source { margin-top: 12px; padding: 12px; border: 2px solid #d7dfe7; border-radius: 8px; overflow-wrap: anywhere; }
+.reply-source--active { border-color: #176bc1; background: #edf6ff; }
 </style>

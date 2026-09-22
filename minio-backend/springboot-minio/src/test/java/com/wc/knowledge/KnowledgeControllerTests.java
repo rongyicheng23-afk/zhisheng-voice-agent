@@ -20,6 +20,19 @@ class KnowledgeControllerTests {
     KnowledgeController controller = new KnowledgeController(knowledge, users, "fixture-key");
     @AfterEach void cleanup() { ThreadLocalUtil.remove(); }
 
+    @Test void createBindsRequestIdAndRetainsLegacyPayloadCompatibility() throws Exception {
+        UserInfo user = new UserInfo(); user.setId(7);
+        when(users.getUserById(7)).thenReturn(user);
+        var mvc = MockMvcBuilders.standaloneSetup(controller).addInterceptors(new LoginInterceptor(users)).build();
+        String key = UUID.randomUUID().toString();
+        for (String body : List.of("{\"requestId\":\"" + key + "\",\"title\":\"通知\"}", "{\"title\":\"旧客户端\"}")) {
+            mvc.perform(post("/api/knowledge/documents").header("Authorization", "Bearer " + JwtUtil.genToken(Map.of("id", 7)))
+                    .contentType("application/json").content(body)).andExpect(status().isOk());
+        }
+        verify(knowledge).create(eq(7), argThat(d -> key.equals(d.requestId()) && "通知".equals(d.title())));
+        verify(knowledge).create(eq(7), argThat(d -> d.requestId() == null && "旧客户端".equals(d.title())));
+    }
+
     @Test void publicSearchRequiresLoginAndUsesClaimedUserNotBodyUser() throws Exception {
         UserInfo user = new UserInfo(); user.setId(7);
         when(users.getUserById(7)).thenReturn(user);

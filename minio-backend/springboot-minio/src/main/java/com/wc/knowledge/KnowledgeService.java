@@ -13,7 +13,12 @@ import java.util.*;
 @Service
 public class KnowledgeService {
     public record Draft(String title, String sourceUrl, String publisher, String sourceVersion,
-                        LocalDate validFrom, LocalDate validUntil, String content, String seriesId) {}
+                        LocalDate validFrom, LocalDate validUntil, String content, String seriesId, String requestId) {
+        public Draft(String title, String sourceUrl, String publisher, String sourceVersion,
+                     LocalDate validFrom, LocalDate validUntil, String content, String seriesId) {
+            this(title, sourceUrl, publisher, sourceVersion, validFrom, validUntil, content, seriesId, null);
+        }
+    }
     public record Document(String id, String seriesId, String title, String sourceUrl, String publisher,
                            String sourceVersion, LocalDate validFrom, LocalDate validUntil,
                            String content, String status, int revision) {}
@@ -58,18 +63,33 @@ public class KnowledgeService {
         if (draft.validFrom == null || draft.validUntil == null || draft.validUntil.isBefore(draft.validFrom)
                 || draft.validFrom.getYear() < 1000 || draft.validUntil.getYear() > 9999)
             throw bad("请填写有效的生效日期和截止日期");
+        String id;
+        if (draft.requestId == null) id = UUID.randomUUID().toString(); // Legacy clients.
+        else {
+            if (!draft.requestId.matches("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")) throw bad("无效的保存请求编号");
+            id = UUID.nameUUIDFromBytes((owner + ":knowledge:" + draft.requestId.toLowerCase(Locale.ROOT))
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        }
         lock(owner);
         List<Document> documents = list(owner);
+        String requestedSeries = draft.seriesId == null || draft.seriesId.isBlank() ? id : draft.seriesId;
+        for (Document existing : documents) {
+            if (!existing.id.equals(id)) continue;
+            if (existing.title.equals(title) && existing.publisher.equals(publisher) && existing.sourceUrl.equals(url)
+                    && existing.sourceVersion.equals(version) && existing.content.equals(content)
+                    && existing.validFrom.equals(draft.validFrom) && existing.validUntil.equals(draft.validUntil)
+                    && existing.seriesId.equals(requestedSeries)) return existing;
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "请求编号已用于其他内容，请使用新的保存请求");
+        }
         if (documents.size() >= 100) throw bad("当前个人资料库上限为100个版本");
         String series = draft.seriesId;
-        if (series == null || series.isBlank()) series = UUID.randomUUID().toString();
+        if (series == null || series.isBlank()) series = id;
         else {
             String requested = series;
             if (documents.stream().noneMatch(d -> d.seriesId.equals(requested))) throw missing();
             if (documents.stream().anyMatch(d -> d.seriesId.equals(requested) && d.sourceVersion.equals(version)))
                 throw bad("同一资料不能使用重复版本号");
         }
-        String id = UUID.randomUUID().toString();
         db.update("INSERT INTO knowledge_document(id,owner_id,series_id,title,source_url,publisher,source_version,valid_from,valid_until,content,status,revision) VALUES (?,?,?,?,?,?,?,?,?,?,?,1)",
                 id, owner, series, title, url, publisher, version, draft.validFrom, draft.validUntil, content, "DRAFT");
         return new Document(id, series, title, url, publisher, version, draft.validFrom, draft.validUntil, content, "DRAFT", 1);

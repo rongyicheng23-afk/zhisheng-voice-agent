@@ -33,6 +33,50 @@ class KnowledgeServiceTests {
     KnowledgeService.Document publish(int uid, KnowledgeService.Document doc) {
         return tx.execute(s -> service.transition(uid, doc.id(), "PUBLISHED", doc.revision()));
     }
+    KnowledgeService.Draft keyed(String key, String version) {
+        var d = draft(null, version);
+        return new KnowledgeService.Draft(d.title(), d.sourceUrl(), d.publisher(), d.sourceVersion(),
+                d.validFrom(), d.validUntil(), d.content(), d.seriesId(), key);
+    }
+    @Test void retryReturnsSameDocumentAndPreservesPublishedState() {
+        var d = keyed(UUID.randomUUID().toString(), "v1");
+        var first = tx.execute(s -> service.create(1, d));
+        publish(1, first);
+        var retry = tx.execute(s -> service.create(1, d));
+        assertEquals(first.id(), retry.id());
+        assertEquals("PUBLISHED", retry.status());
+        assertEquals(1, service.list(1).size());
+        var other = tx.execute(s -> service.create(2, d));
+        assertNotEquals(first.id(), other.id());
+    }
+    @Test void reusedKeyWithDifferentContentIsConflictAndInvalidKeyIsRejected() {
+        String key = UUID.randomUUID().toString();
+        tx.execute(s -> service.create(1, keyed(key, "v1")));
+        var error = assertThrows(ResponseStatusException.class,
+                () -> tx.execute(s -> service.create(1, keyed(key, "v2"))));
+        assertEquals(409, error.getStatusCode().value());
+        assertThrows(ResponseStatusException.class, () -> tx.execute(s -> service.create(1, keyed("invalid", "v3"))));
+        assertEquals(1, service.list(1).size());
+    }
+    @Test void concurrentRetriesCreateExactlyOneDocument() throws Exception {
+        var d = keyed(UUID.randomUUID().toString(), "v1");
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var a = pool.submit(() -> tx.execute(s -> service.create(1, d)));
+            var b = pool.submit(() -> tx.execute(s -> service.create(1, d)));
+            assertEquals(a.get(5, TimeUnit.SECONDS).id(), b.get(5, TimeUnit.SECONDS).id());
+            assertEquals(1, service.list(1).size());
+        } finally { pool.shutdownNow(); }
+    }
+    @Test void rolledBackCreationCanBeRetriedWithSameKey() {
+        var d = keyed(UUID.randomUUID().toString(), "v1");
+        assertThrows(IllegalStateException.class, () -> tx.execute(s -> {
+            service.create(1, d); throw new IllegalStateException("rollback");
+        }));
+        assertTrue(service.list(1).isEmpty());
+        tx.execute(s -> service.create(1, d));
+        assertEquals(1, service.list(1).size());
+    }
     @Test void draftExcludedAndPublishedQuotesRetainProvenance() {
         var doc = create(1, null, "v1");
         assertTrue(service.search(1, "报名材料").citations().isEmpty());
