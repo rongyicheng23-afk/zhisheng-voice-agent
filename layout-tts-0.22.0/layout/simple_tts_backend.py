@@ -28,6 +28,13 @@ LANGUAGES = ["en", "zh-cn", "es", "fr", "de"]
 _model = None
 _synthesis_lock = threading.Lock()
 
+def preload_model():
+    """Load XTTS before accepting requests when an operator opts in."""
+    global _model
+    with _synthesis_lock:
+        if _model is None:
+            _model = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
+
 def synthesize_speech(text, speaker_file, emotion="neutral", language="en"):
     """Whole-segment fallback, not streaming. Caller owns _synthesis_lock."""
     global _model
@@ -226,6 +233,9 @@ def synthesize():
 @app.errorhandler(413)
 def too_large(_error):
     return jsonify({"error": "上传请求不能超过20 MB"}), 413
+
+if os.environ.get('TTS_PRELOAD_MODEL') == '1':
+    preload_model()
 
 if __name__ == '__main__':
     print("🚀 启动简单的XTTS后端...")

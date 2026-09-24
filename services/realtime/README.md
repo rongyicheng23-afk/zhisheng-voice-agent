@@ -95,14 +95,25 @@ mode/rate, truncated responses and bytes after completion. It only reports a
 completed segment when the completion frame arrives. A partial failed stream
 causes `turn.failed`; earlier audio may already have played.
 
-Start the local XTTS backend with the updated code and opt in on the gateway:
+Before starting the normal project launcher, opt in to model preload in the
+launcher environment:
+
+```bash
+export TTS_PRELOAD_MODEL=1
+```
+
+After XTTS is healthy, opt in to streaming in the gateway environment:
 
 ```bash
 export REALTIME_TTS_MODE=streaming
 bash scripts/start-realtime-gateway.sh
 ```
 
-The TTS service itself uses its normal local launcher. The `streaming` setting
+Set `TTS_PRELOAD_MODEL=1` **before starting the XTTS backend process**; it loads
+the model during startup and makes `/health` available only after preload succeeds.
+This moves cold model loading ahead of the first request; it does not make the
+model faster and increases startup time and memory use. The TTS service itself
+uses its normal local launcher. The `streaming` setting
 must be present in the gateway process; its health endpoint reports the configured
 mode, not proof that the TTS service is reachable. The segmented route remains
 available by setting `REALTIME_TTS_MODE=segmented`. Automatic provider fallback

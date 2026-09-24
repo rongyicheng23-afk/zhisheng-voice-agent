@@ -106,6 +106,15 @@ class TtsBackendTests(unittest.TestCase):
         self.assertEqual(['segmented', 'streaming'], data['availableSynthesisModes'])
         self.assertFalse(data['modelLoaded'])
 
+    def test_preload_makes_model_ready_and_does_not_reload_on_synthesis(self):
+        self.module.preload_model()
+        self.module.preload_model()
+        self.assertTrue(self.client.get('/health').json['modelLoaded'])
+        response = self.post_stream()
+        self.assertEqual(200, response.status_code)
+        response.close()
+        self.assertEqual(1, self.loads)
+
     def test_streaming_emits_audio_before_model_finishes_and_releases_files(self):
         response = self.post_stream()
         first = next(iter(response.response))
