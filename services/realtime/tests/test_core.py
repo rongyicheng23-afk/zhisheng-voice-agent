@@ -131,6 +131,29 @@ class TurnTests(unittest.IsolatedAsyncioTestCase):
         names = [(e['turnId'], e['event']) for e in self.events]
         self.assertLess(names.index((old, 'turn.cancelled')), names.index((new, 'turn.started')))
 
+    async def test_adapter_replacement_waits_for_old_turn_cancellation(self):
+        old_closed = asyncio.Event()
+        class OldLlm:
+            async def stream(self, prompt):
+                try:
+                    await asyncio.sleep(100)
+                    yield 'old text'
+                finally:
+                    old_closed.set()
+        class NewLlm:
+            async def stream(self, prompt):
+                yield 'new answer is here。'
+        self.session.llm = OldLlm()
+        old = await self.session.start('old')
+        await asyncio.sleep(0.01)
+        new = await self.session.start('new', llm=NewLlm())
+        await asyncio.wait_for(old_closed.wait(), 1)
+        await self.wait_event('audio.completed')
+        self.assertTrue(any(e['turnId'] == new and e['event'] == 'llm.delta' and e['text'] == 'new answer is here。' for e in self.events))
+        self.assertFalse(any(e['turnId'] == old and e['event'] == 'llm.delta' for e in self.events))
+        await self.session.playback_finished(new)
+        await self.wait_event('turn.completed')
+
     async def test_invalid_audio_fails_without_provider_details(self):
         class InvalidTts(TtsFixture):
             async def stream(self, text):

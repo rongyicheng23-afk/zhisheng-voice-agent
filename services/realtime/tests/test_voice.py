@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+import struct
 import unittest
 import wave
 from types import SimpleNamespace
@@ -9,7 +10,7 @@ from unittest.mock import patch
 import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from services.realtime.voice import AudioDelivery, SegmentedTts, install_voice_route
+from services.realtime.voice import AudioDelivery, SegmentedTts, StreamingTts, install_voice_route
 
 
 def wav_bytes(rate=24000):
@@ -21,6 +22,39 @@ def wav_bytes(rate=24000):
 
 
 class TtsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_streaming_frames_are_playable_before_terminator_and_ack_paces_delivery(self):
+        delivery = AudioDelivery()
+        pcm = b'\x01\x00' * 2400
+        body = struct.pack('>I', len(pcm)) + pcm + struct.pack('>I', len(pcm)) + pcm + struct.pack('>I', 0)
+        adapter = StreamingTts('http://tts/synthesize-stream', b'reference', delivery,
+                httpx.MockTransport(lambda request: httpx.Response(200, content=body, headers={
+                    'Content-Type': 'application/x-zhisheng-pcm16-stream',
+                    'X-Synthesis-Mode': 'streaming', 'X-Sample-Rate': '24000'})))
+        stream = adapter.stream('测试文本')
+        first = await anext(stream)
+        self.assertEqual(pcm, first.pcm)
+        delivery.arm(7)
+        second = asyncio.create_task(anext(stream))
+        await asyncio.sleep(0)
+        self.assertFalse(second.done())
+        delivery.ack(7)
+        self.assertEqual(pcm, (await second).pcm)
+        await stream.aclose()
+
+    async def test_streaming_requires_valid_frames_and_terminal_marker(self):
+        headers = {'Content-Type': 'application/x-zhisheng-pcm16-stream',
+                   'X-Synthesis-Mode': 'streaming', 'X-Sample-Rate': '24000'}
+        bad = [struct.pack('>I', 2) + b'\0\0',
+               struct.pack('>I', 4802) + b'\0' * 4802,
+               struct.pack('>I', 3) + b'abc' + struct.pack('>I', 0),
+               struct.pack('>I', 2) + b'\0\0' + struct.pack('>I', 0) + b'extra',
+               struct.pack('>I', 0)]
+        for body in bad:
+            adapter = StreamingTts('http://tts/synthesize-stream', b'reference', AudioDelivery(),
+                    httpx.MockTransport(lambda request, data=body: httpx.Response(200, content=data, headers=headers)))
+            with self.assertRaises(ValueError):
+                async for _ in adapter.stream('测试文本'):
+                    pass
     async def test_wav_is_decoded_and_delivery_waits_for_correct_ack(self):
         delivery = AudioDelivery()
         adapter = SegmentedTts("http://tts/synthesize", b"reference", delivery,
@@ -100,6 +134,49 @@ class VoiceSocketTests(unittest.TestCase):
             self.assertEqual(4, audio_count)
         self.assertTrue(self.closed)
 
+    def test_same_socket_handles_two_turns_with_monotonic_event_sequence(self):
+        with TestClient(self.app) as client, self.connect(client) as ws:
+            ready = ws.receive_json(); self.assertEqual('session.ready', ready['event'])
+            seen = []
+            for question in ('first', 'second'):
+                ws.send_json({'event': 'turn.start', 'prompt': question})
+                while True:
+                    event = ws.receive_json(); seen.append(event)
+                    self.assertEqual(ready['sessionId'], event['sessionId'])
+                    if event['event'] == 'audio.chunk':
+                        ws.send_json({'event': 'audio.ack', 'turnId': event['turnId'], 'sequence': event['sequence']})
+                    if event['event'] == 'audio.completed':
+                        ws.send_json({'event': 'playback.completed', 'turnId': event['turnId']})
+                    if event['event'] == 'turn.completed': break
+            self.assertEqual(2, sum(e['event'] == 'turn.completed' for e in seen))
+            self.assertEqual(2, len({e['turnId'] for e in seen}))
+            self.assertEqual(list(range(1, len(seen) + 1)), [e['sequence'] for e in seen])
+
+    def test_streaming_mode_emits_first_chunk_before_segment_complete(self):
+        pcm = b'\x01\x00' * 2400
+        frames = (struct.pack('>I', len(pcm)) + pcm) * 2 + struct.pack('>I', 0)
+        original = StreamingTts.__init__
+        transport = httpx.MockTransport(lambda req: httpx.Response(200, content=frames, headers={
+            'Content-Type': 'application/x-zhisheng-pcm16-stream',
+            'X-Synthesis-Mode': 'streaming', 'X-Sample-Rate': '24000'}))
+        def init(adapter, url, reference, delivery):
+            original(adapter, url, reference, delivery, transport)
+        with (patch.dict('os.environ', {'REALTIME_TTS_MODE': 'streaming'}),
+              patch.object(StreamingTts, '__init__', init),
+              TestClient(self.app) as client, self.connect(client) as ws):
+            self.assertEqual('streaming', ws.receive_json()['synthesisMode'])
+            ws.send_json({'event': 'turn.start', 'prompt': '测试'})
+            seen = []
+            while True:
+                event = ws.receive_json(); seen.append(event['event'])
+                if event['event'] == 'audio.chunk':
+                    self.assertEqual('streaming', event['synthesisMode'])
+                    ws.send_json({'event': 'audio.ack', 'turnId': event['turnId'], 'sequence': event['sequence']})
+                if event['event'] == 'audio.completed':
+                    ws.send_json({'event': 'playback.completed', 'turnId': event['turnId']})
+                if event['event'] == 'turn.completed': break
+            self.assertLess(seen.index('tts.first_audio'), seen.index('tts.segment_completed'))
+
     def test_interrupt_while_waiting_for_buffer_ack_emits_terminal_cancellation(self):
         with TestClient(self.app) as client, self.connect(client) as ws:
             ws.receive_json()
@@ -165,3 +242,38 @@ class VoiceSocketTests(unittest.TestCase):
                     break
         import json
         self.assertEqual(7, json.loads(requests[0].content)['userId'])
+
+    def test_general_knowledge_general_switch_keeps_adapters_isolated(self):
+        from services.realtime.knowledge import KnowledgeReply
+        from services.realtime.tests.test_knowledge import citation
+        calls = []
+        class Model:
+            def __init__(self, settings): pass
+            async def stream_reply(self, prompt, cancel, user_id=None):
+                calls.append((prompt, user_id))
+                yield '通用回答完整句子。'
+        def search(request): return httpx.Response(200, json={'citations': [citation()]})
+        original = KnowledgeReply.__init__
+        def init(adapter, settings, user_id):
+            original(adapter, settings, user_id, httpx.MockTransport(search))
+        async def consume(*args): return 7
+        app = FastAPI()
+        settings = SimpleNamespace(allowed_origins={'http://localhost:8081'}, deepseek_api_key='fixture',
+                                   spring_boot_url='http://business', internal_key='fixture')
+        install_voice_route(app, settings, consume, Model)
+        with patch.object(KnowledgeReply, '__init__', init), TestClient(app) as client, self.connect(client) as ws:
+            ws.receive_json()
+            all_events = []
+            for mode, prompt in (('general', 'g1'), ('knowledge', '报名材料'), ('general', 'g2')):
+                ws.send_json({'event': 'turn.start', 'prompt': prompt, 'answerMode': mode})
+                turn_events = []
+                while True:
+                    event = ws.receive_json(); turn_events.append(event); all_events.append(event)
+                    if event['event'] == 'audio.chunk':
+                        ws.send_json({'event': 'audio.ack', 'turnId': event['turnId'], 'sequence': event['sequence']})
+                    if event['event'] == 'audio.completed':
+                        ws.send_json({'event': 'playback.completed', 'turnId': event['turnId']})
+                    if event['event'] == 'turn.completed': break
+                self.assertEqual(mode == 'knowledge', any(e['event'] == 'turn.sources' for e in turn_events))
+            self.assertEqual([('g1', 7), ('g2', 7)], calls)
+            self.assertEqual(list(range(1, len(all_events) + 1)), [e['sequence'] for e in all_events])

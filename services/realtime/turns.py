@@ -54,7 +54,7 @@ class RealtimeSession:
                 **payload)), self.send_timeout)
             return True
 
-    async def start(self, prompt):
+    async def start(self, prompt, *, llm=None):
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 8000:
             raise ValueError('prompt must contain 1–8000 characters')
         async with self._control:
@@ -62,6 +62,8 @@ class RealtimeSession:
             self._pending = {task for task in self._pending if not task.done()}
             if self._pending:
                 raise RuntimeError('previous adapter has not released its tasks')
+            if llm is not None:
+                self.llm = llm
             turn = dict(id=uuid.uuid4().hex, state='ACTIVE', playback=asyncio.Event(), audio_done=False)
             self.active = turn
             await self._emit(turn, 'turn.started', synthesisMode=self.tts.synthesis_mode)
@@ -110,13 +112,14 @@ class RealtimeSession:
     async def _run(self, turn, prompt):
         queue = asyncio.Queue(maxsize=self.queue_size)
         chunker = SemanticChunker()
+        llm, tts = self.llm, self.tts
 
         async def produce():
-            prepare = getattr(self.llm, 'prepare', None)
+            prepare = getattr(llm, 'prepare', None)
             if prepare:
                 citations = await prepare(prompt)
                 await self._emit(turn, 'turn.sources', citations=citations, answerMode='extractive')
-            iterator = self.llm.stream(prompt).__aiter__()
+            iterator = llm.stream(prompt).__aiter__()
             next_token = None
             first = True
             generated_chars = 0
@@ -168,11 +171,11 @@ class RealtimeSession:
                 if segment is None:
                     break
                 segment_sequence += 1
-                citation_ids = getattr(self.llm, 'citation_ids', lambda text: [])(segment.text)
+                citation_ids = getattr(llm, 'citation_ids', lambda text: [])(segment.text)
                 await self._emit(turn, 'segment.ready', segmentSequence=segment_sequence,
                                  text=segment.text, boundaryReason=segment.reason, citationIds=citation_ids)
                 chunk_sequence = 0
-                stream = self.tts.stream(segment.text)
+                stream = tts.stream(segment.text)
                 try:
                     async for chunk in stream:
                         if (not isinstance(chunk, AudioChunk) or chunk.channels != 1
@@ -186,10 +189,10 @@ class RealtimeSession:
                         chunk_sequence += 1
                         if chunk_sequence == 1:
                             await self._emit(turn, 'tts.first_audio', segmentSequence=segment_sequence,
-                                             synthesisMode=self.tts.synthesis_mode)
+                                             synthesisMode=tts.synthesis_mode)
                         await self._emit(turn, 'audio.chunk', segmentSequence=segment_sequence,
                                          chunkSequence=chunk_sequence, codec='pcm16', channels=1,
-                                         sampleRate=chunk.sample_rate, synthesisMode=self.tts.synthesis_mode,
+                                         sampleRate=chunk.sample_rate, synthesisMode=tts.synthesis_mode,
                                          pcm=chunk.pcm)
                 finally:
                     close = getattr(stream, 'aclose', None)
@@ -198,7 +201,7 @@ class RealtimeSession:
                 if not chunk_sequence:
                     raise ValueError('TTS returned no audio')
                 await self._emit(turn, 'tts.segment_completed', segmentSequence=segment_sequence,
-                                 synthesisMode=self.tts.synthesis_mode)
+                                 synthesisMode=tts.synthesis_mode)
             if not segment_sequence:
                 raise ValueError('model returned no text')
             turn['audio_done'] = True

@@ -1,4 +1,4 @@
-"""Authenticated segmented-speech transport using the existing turn core.
+"""Authenticated segmented or streaming speech transport using the turn core.
 
 XTTS's HTTP fallback cannot cancel an in-flight inference. Disconnecting stops
 consumption and subsequent synthesis; stale PCM never reaches a new turn.
@@ -8,6 +8,7 @@ import base64
 import io
 import json
 import os
+import struct
 import time
 import wave
 from pathlib import Path
@@ -73,6 +74,58 @@ class SegmentedTts:
                 await self.delivery.wait()
 
 
+class StreamingTts:
+    """Strict framed PCM16 protocol. A missing terminal frame is a failed segment."""
+    synthesis_mode = "streaming"
+
+    def __init__(self, url, reference, delivery, transport=None):
+        self.url, self.reference, self.delivery = url, reference, delivery
+        self.transport = transport
+
+    async def stream(self, text):
+        if not text.strip() or len(text) > 500:
+            raise ValueError("invalid TTS segment")
+        async with httpx.AsyncClient(timeout=90, transport=self.transport) as client:
+            async with client.stream("POST", self.url,
+                    data={"text": text, "language": "zh-cn"},
+                    files={"audio": ("reference.wav", self.reference, "audio/wav")}) as response:
+                response.raise_for_status()
+                if (response.headers.get('content-type', '').split(';')[0] != 'application/x-zhisheng-pcm16-stream'
+                        or response.headers.get('x-synthesis-mode') != 'streaming'
+                        or response.headers.get('x-sample-rate') != '24000'):
+                    raise ValueError('unsupported streaming TTS response')
+                buffer = bytearray()
+                total = 0
+                completed = False
+                async for block in response.aiter_bytes(chunk_size=4096):
+                    if completed:
+                        if block:
+                            raise ValueError('bytes after streaming TTS terminator')
+                        continue
+                    buffer.extend(block)
+                    while len(buffer) >= 4:
+                        length = struct.unpack('>I', buffer[:4])[0]
+                        if length == 0:
+                            if not total or len(buffer) != 4:
+                                raise ValueError('invalid streaming TTS terminator')
+                            completed = True
+                            buffer.clear()
+                            break
+                        if length > 4800 or length % 2:
+                            raise ValueError('invalid streaming PCM frame length')
+                        if len(buffer) < 4 + length:
+                            break
+                        pcm = bytes(buffer[4:4 + length])
+                        del buffer[:4 + length]
+                        total += length
+                        if total > 24000 * 180 * 2:
+                            raise ValueError('streaming audio exceeds duration limit')
+                        yield AudioChunk(pcm, sample_rate=24000)
+                        await self.delivery.wait()
+                if not completed:
+                    raise ValueError('incomplete streaming TTS response')
+
+
 class VoiceLlm:
     def __init__(self, adapter, user_id):
         self.adapter, self.user_id = adapter, user_id
@@ -133,13 +186,20 @@ def install_voice_route(app, settings, consume_ticket, llm_factory):
                     event = dict(event, pcm=base64.b64encode(event["pcm"]).decode("ascii"))
                 await websocket.send_json(event)
 
-            tts = SegmentedTts(os.getenv("REALTIME_TTS_URL", "http://127.0.0.1:8003/synthesize"),
-                    reference, delivery)
+            mode = os.getenv('REALTIME_TTS_MODE', 'segmented')
+            if mode not in ('segmented', 'streaming'):
+                raise ValueError('invalid TTS mode')
+            if mode == 'streaming':
+                tts = StreamingTts(os.getenv('REALTIME_TTS_STREAM_URL', 'http://127.0.0.1:8003/synthesize-stream'),
+                        reference, delivery)
+            else:
+                tts = SegmentedTts(os.getenv("REALTIME_TTS_URL", "http://127.0.0.1:8003/synthesize"),
+                        reference, delivery)
             session = RealtimeSession(VoiceLlm(llm_factory(settings), user_id), tts, send)
             await websocket.send_json({"event": "session.ready", "sessionId": session.session_id,
-                "sampleRate": 24000, "synthesisMode": "segmented",
+                "sampleRate": 24000, "synthesisMode": mode,
                 "inferenceCancellation": False})
-            started = False
+            turn_count = 0
             deadline = time.monotonic() + 600
             while True:
                 remaining = deadline - time.monotonic()
@@ -152,21 +212,23 @@ def install_voice_route(app, settings, consume_ticket, llm_factory):
                 if not isinstance(message, dict):
                     raise ValueError("invalid event")
                 event = message.get("event")
-                if event == "turn.start" and not started:
+                if event == "turn.start":
+                    turn_count += 1
+                    if turn_count > 20:
+                        raise ValueError('session turn limit')
                     prompt = message.get("prompt")
                     if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= 4000:
                         raise ValueError("invalid prompt")
                     mode = message.get('answerMode', 'general')
                     if mode not in ('general', 'knowledge'):
                         raise ValueError('invalid answer mode')
-                    if mode == 'knowledge':
-                        session.llm = KnowledgeReply(settings, user_id)
-                    elif not settings.deepseek_api_key:
+                    if mode == 'general' and not settings.deepseek_api_key:
                         await websocket.send_json({'event': 'session.unavailable', 'message': 'DeepSeek 未配置'})
                         await websocket.close(code=1013)
                         return
-                    started = True
-                    await session.start(prompt)
+                    adapter = (KnowledgeReply(settings, user_id) if mode == 'knowledge'
+                               else VoiceLlm(llm_factory(settings), user_id))
+                    await session.start(prompt, llm=adapter)
                 elif session.active and message.get("turnId") == session.active["id"]:
                     if event == "turn.interrupt":
                         await session.interrupt(message["turnId"])

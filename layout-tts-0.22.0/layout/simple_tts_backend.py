@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, Response, stream_with_context
 from flask_cors import CORS
 
 from TTS.api import TTS
@@ -6,6 +6,8 @@ import os
 import uuid
 import io
 import threading
+import struct
+import numpy as np
 from pathlib import Path
 from werkzeug.exceptions import HTTPException
 
@@ -53,6 +55,35 @@ def synthesize_speech(text, speaker_file, emotion="neutral", language="en"):
             Path(output_path).unlink(missing_ok=True)
         return None
 
+
+def stream_speech(text, speaker_file, language="zh-cn"):
+    """Yield framed PCM16 while XTTS is still producing the current segment.
+
+    Each frame is a big-endian byte length followed by <=100 ms mono PCM16;
+    a zero-length frame marks successful completion. Missing terminator is failure.
+    """
+    global _model
+    if _model is None:
+        _model = TTS(model_name="tts_models/multilingual/multi-dataset/xtts_v2")
+    model = _model.synthesizer.tts_model
+    if not callable(getattr(model, 'inference_stream', None)) or model.args.output_sample_rate != 24000:
+        raise ValueError('XTTS streaming at 24000 Hz is unavailable')
+    conditioning, speaker = model.get_conditioning_latents(audio_path=speaker_file)
+    samples = 0
+    for chunk in model.inference_stream(text, language, conditioning, speaker, stream_chunk_size=20):
+        audio = np.asarray(chunk.detach().cpu(), dtype=np.float32).reshape(-1)
+        if not np.isfinite(audio).all():
+            raise ValueError('invalid streaming audio')
+        for offset in range(0, len(audio), 2400):
+            pcm = (np.clip(audio[offset:offset + 2400], -1, 1) * 32767).astype('<i2').tobytes()
+            samples += len(pcm) // 2
+            if samples > 24000 * 180:
+                raise ValueError('streaming audio exceeds duration limit')
+            yield struct.pack('>I', len(pcm)) + pcm
+    if not samples:
+        raise ValueError('XTTS returned no audio')
+    yield struct.pack('>I', 0)
+
 @app.route('/health')
 def health():
     """健康检查"""
@@ -60,11 +91,65 @@ def health():
         "status": "ok",
         "modelLoaded": _model is not None,
         "synthesisMode": "segmented",
-        "supportsStreaming": False,
+        "availableSynthesisModes": ["segmented", "streaming"],
+        "supportsStreaming": True,
+        "streamingEndpoint": "/synthesize-stream",
         "supportsCancellation": False,
         "emotions": EMOTIONS,
         "languages": LANGUAGES
     })
+
+
+@app.route('/synthesize-stream', methods=['POST'])
+def synthesize_stream():
+    """Framed PCM16 stream; only this route may claim streaming synthesis."""
+    upload_path = None
+    acquired = False
+    released = False
+    def release():
+        nonlocal released
+        if not released:
+            released = True
+            if upload_path:
+                Path(upload_path).unlink(missing_ok=True)
+            _synthesis_lock.release()
+    try:
+        text = request.form.get('text', '').strip()
+        language = request.form.get('language', 'zh-cn')
+        audio_file = request.files.get('audio')
+        if not text or len(text) > 500 or language not in LANGUAGES or not audio_file or not audio_file.filename:
+            return jsonify({"error": "无效的文本、语言或参考音频"}), 400
+        acquired = _synthesis_lock.acquire(blocking=False)
+        if not acquired:
+            return jsonify({"error": "语音合成服务忙，请稍后重试"}), 503, {"Retry-After": "2"}
+        upload_path = os.path.join(UPLOAD_FOLDER, f"stream_{uuid.uuid4().hex}.wav")
+        audio_file.save(upload_path)
+        if os.path.getsize(upload_path) == 0:
+            return jsonify({"error": "音频文件为空"}), 400
+
+        def generate():
+            try:
+                yield from stream_speech(text, upload_path, language)
+            except Exception as e:
+                app.logger.error('Streaming TTS failed (%s)', type(e).__name__)
+                # No terminator; the gateway fails the turn instead of playing a partial success.
+            finally:
+                release()
+
+        response = Response(stream_with_context(generate()), mimetype='application/x-zhisheng-pcm16-stream',
+                        headers={'X-Synthesis-Mode': 'streaming', 'X-Sample-Rate': '24000',
+                                 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff'})
+        response.call_on_close(release)
+        acquired = False  # The response generator/close callback owns cleanup.
+        return response
+    except HTTPException:
+        raise
+    except Exception as e:
+        app.logger.error('Streaming TTS request failed (%s)', type(e).__name__)
+        return jsonify({"error": "语音合成失败，请检查参考音频或稍后重试"}), 500
+    finally:
+        if acquired:
+            release()
 
 @app.route('/synthesize', methods=['POST'])
 def synthesize():

@@ -7,10 +7,14 @@ export interface ReplyUpdate {
   text?: string
   busy?: boolean
   firstTokenMs?: number
+  firstTtsAudioMs?: number
   firstAudioMs?: number
+  synthesisMode?: 'streaming' | 'segmented'
+  bufferedMs?: number
+  underflowCount?: number
 }
 
-/** One socket per reply. Generation gates all callbacks, including late ticket responses. */
+/** One authenticated socket per page session; each reply keeps its own turnId. */
 export class VoiceReply {
   private generation = 0
   private socket: WebSocket | null = null
@@ -19,6 +23,8 @@ export class VoiceReply {
   private abort: AbortController | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private turnId = ''
+  private reuse: ((prompt: string, mode: 'general' | 'knowledge') => void) | null = null
+  private socketToken = ''
   constructor(private update: (value: ReplyUpdate) => void) {}
 
   stop(notify = true) {
@@ -38,26 +44,33 @@ export class VoiceReply {
     if (this.context) void this.context.close().catch(() => undefined)
     this.context = null
     this.turnId = ''
+    this.reuse = null
+    this.socketToken = ''
     this.update({ activeCitationIds: [] })
     if (notify) this.update({ busy: false, status: '已停止回答' })
   }
 
   async start(prompt: string, answerMode: 'general' | 'knowledge' = 'general') {
-    this.stop(false)
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
+    const existing = token && token === this.socketToken && this.reuse && this.socket?.readyState === WebSocket.OPEN ? this.reuse : null
+    if (!existing) this.stop(false)
     const attempt = this.generation
     const current = () => attempt === this.generation
-    const began = performance.now()
-    const text = prompt.trim()
+    let began = performance.now()
+    let text = prompt.trim()
     if (!text || text.length > (answerMode === 'knowledge' ? 1000 : 4000)) {
+      if (existing) this.stop(false)
       this.update({ busy: false, status: answerMode === 'knowledge' ? '资料模式请输入 1–1000 字的提问' : '请输入 1–4000 字的提问' })
       return
     }
-    const token = localStorage.getItem('token') || sessionStorage.getItem('token')
     if (!token) {
+      if (existing) this.stop(false)
       this.update({ busy: false, status: '请先登录' })
       return
     }
-    this.update({ busy: true, text: '', citations: [], status: '正在连接语音回答', firstTokenMs: undefined, firstAudioMs: undefined })
+    if (existing) { existing(text, answerMode); return }
+    this.update({ busy: true, text: '', citations: [], status: '正在连接语音回答', firstTokenMs: undefined,
+      firstTtsAudioMs: undefined, firstAudioMs: undefined, bufferedMs: 0, underflowCount: 0 })
     const fail = (status: string) => {
       if (!current()) return
       this.stop(false)
@@ -96,21 +109,48 @@ export class VoiceReply {
       url.searchParams.set('ticket', ticket)
       const socket = new WebSocket(url.toString())
       this.socket = socket
+      this.socketToken = token
       let sessionId = '', sequence = 0, answer = '', pendingAck = 0, firstAudio = true
+      let synthesisMode: 'streaming' | 'segmented' = 'segmented', firstTtsAudio = true, underflows = 0
       const sourceIds = new Set<string>()
       const segments = new Map<number, string[]>()
       let lastSegment = 0, playedSegment = 0, sourcesReceived = false
       const send = (event: object) => {
         if (current() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(event))
       }
+      const beginTurn = (nextText: string, nextMode: 'general' | 'knowledge', reused = true) => {
+        if (!current()) return
+        if (this.turnId) {
+          send({ event: 'turn.interrupt', turnId: this.turnId })
+          player.port.postMessage({ event: 'turn.interrupt', turnId: this.turnId })
+        }
+        this.turnId = ''
+        text = nextText; answerMode = nextMode
+        if (reused) began = performance.now()
+        answer = ''; pendingAck = 0; firstAudio = true; firstTtsAudio = true; underflows = 0
+        sourceIds.clear(); segments.clear(); lastSegment = 0; playedSegment = 0; sourcesReceived = false
+        if (this.timer) clearTimeout(this.timer)
+        this.timer = setTimeout(() => fail('本轮回答超时，请重试'), 10 * 60 * 1000)
+        this.update({ busy: true, text: '', citations: [], activeCitationIds: [], status: '正在生成回答',
+          firstTokenMs: undefined, firstTtsAudioMs: undefined, firstAudioMs: undefined,
+          synthesisMode, bufferedMs: 0, underflowCount: 0 })
+        send({ event: 'turn.start', prompt: text, answerMode })
+      }
       player.port.onmessage = ({ data }) => {
         if (!current() || !this.turnId || data.turnId !== this.turnId) return
-        if (data.event === 'playback.buffer' && pendingAck && data.bufferedFrames <= 48000) {
-          send({ event: 'audio.ack', turnId: this.turnId, sequence: pendingAck })
-          pendingAck = 0
+        if (data.event === 'playback.buffer') {
+          if (Number.isSafeInteger(data.bufferedFrames) && data.bufferedFrames >= 0 && data.bufferedFrames <= 96000)
+            this.update({ bufferedMs: Math.round(data.bufferedFrames / 24) })
+          if (pendingAck && data.bufferedFrames <= 48000) {
+            send({ event: 'audio.ack', turnId: this.turnId, sequence: pendingAck })
+            pendingAck = 0
+          }
         } else if (data.event === 'playback.started' && firstAudio) {
           firstAudio = false
-          this.update({ firstAudioMs: Math.round(performance.now() - began), status: '正在播放（分段合成）' })
+          this.update({ firstAudioMs: Math.round(performance.now() - began),
+            status: synthesisMode === 'streaming' ? '正在播放（增量合成）' : '正在播放（分段合成）' })
+        } else if (data.event === 'playback.underflow') {
+          this.update({ underflowCount: ++underflows, bufferedMs: 0 })
         } else if (data.event === 'playback.segment') {
           if (!Number.isSafeInteger(data.segmentSequence) || data.segmentSequence !== playedSegment + 1 || !segments.has(data.segmentSequence)) {
             fail('播放段落与来源不一致，请重新提问'); return
@@ -132,19 +172,20 @@ export class VoiceReply {
             return
           }
           if (event.event === 'session.ready' && !sessionId) {
-            if (event.sampleRate !== 24000 || typeof event.sessionId !== 'string') throw new Error('protocol')
+            if (event.sampleRate !== 24000 || typeof event.sessionId !== 'string' ||
+                !['streaming', 'segmented'].includes(event.synthesisMode)) throw new Error('protocol')
+            synthesisMode = event.synthesisMode
             sessionId = event.sessionId
             if (this.timer) clearTimeout(this.timer)
-            this.timer = setTimeout(() => fail('本轮回答超时，请重试'), 10 * 60 * 1000)
-            send({ event: 'turn.start', prompt: text, answerMode })
-            this.update({ status: '正在生成回答' })
+            this.reuse = (nextText, nextMode) => beginTurn(nextText, nextMode)
+            beginTurn(text, answerMode, false)
             return
           }
           if (!sessionId || event.sessionId !== sessionId) return
           if (!Number.isSafeInteger(event.sequence) || event.sequence !== sequence + 1) throw new Error('sequence')
           sequence = event.sequence
           if (event.event === 'turn.started' && !this.turnId) {
-            if (typeof event.turnId !== 'string' || !event.turnId) throw new Error('turn')
+            if (typeof event.turnId !== 'string' || !event.turnId || event.synthesisMode !== synthesisMode) throw new Error('turn')
             this.turnId = event.turnId
             player.port.postMessage({ event: 'turn.start', turnId: this.turnId })
           }
@@ -165,20 +206,27 @@ export class VoiceReply {
                 new Set(ids).size !== ids.length || ids.some((id: string) => !sourceIds.has(id))) throw new Error('segment')
             segments.set(++lastSegment, ids)
           }
+          else if (event.event === 'tts.first_audio' && firstTtsAudio) {
+            if (event.synthesisMode !== synthesisMode) throw new Error('synthesis')
+            firstTtsAudio = false
+            this.update({ firstTtsAudioMs: Math.round(performance.now() - began) })
+          }
           else if (event.event === 'llm.first_token') this.update({ firstTokenMs: Math.round(performance.now() - began) })
           else if (event.event === 'llm.delta') {
             if (typeof event.text !== 'string' || answer.length + event.text.length > 32000) throw new Error('text')
             answer += event.text
             this.update({ text: answer })
           } else if (event.event === 'audio.chunk') {
-            if (pendingAck || typeof event.pcm !== 'string' || event.pcm.length > 6400) throw new Error('audio')
+            if (pendingAck || event.synthesisMode !== synthesisMode || typeof event.pcm !== 'string' || event.pcm.length > 6400) throw new Error('audio')
             const pcm = Uint8Array.from(atob(event.pcm), c => c.charCodeAt(0)).buffer
             pendingAck = event.sequence
             player.port.postMessage({ ...event, pcm }, [pcm])
           } else if (event.event === 'audio.completed') player.port.postMessage(event)
           else if (event.event === 'turn.completed') {
-            this.stop(false)
-            this.update({ busy: false, status: '回答播放完成' })
+            if (this.timer) clearTimeout(this.timer)
+            this.timer = null
+            this.turnId = ''
+            this.update({ busy: false, activeCitationIds: [], status: '回答播放完成' })
           } else if (event.event === 'turn.failed') fail(answerMode === 'knowledge'
             ? '资料检索或朗读失败，本轮不会改用无依据回答' : '回答处理失败，请检查模型服务或稍后重试')
           else if (event.event === 'turn.cancelled') fail('回答已取消')
