@@ -22,6 +22,8 @@ public class KnowledgeController {
     public record StatusRequest(String status, int revision) {}
     public record Query(String question) {}
     public record InternalQuery(int userId, String question) {}
+    public record CompareRequest(String beforeId, String afterId) {}
+    public record ReviewedPublishRequest(String reviewToken) {}
     private int user() {
         int id = AuthContextUtil.currentUserId();
         if (id <= 0 || users.getUserById(id) == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
@@ -30,6 +32,18 @@ public class KnowledgeController {
     private <T> ResponseEntity<T> result(T data) { return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(data); }
     @GetMapping("/api/knowledge/documents")
     public ResponseEntity<List<KnowledgeService.Document>> list() { return result(knowledge.list(user())); }
+    @PostMapping("/api/knowledge/compare")
+    public ResponseEntity<KnowledgeComparison.Result> compare(@RequestBody CompareRequest request) {
+        return result(knowledge.compare(user(), request.beforeId(), request.afterId()));
+    }
+    @GetMapping("/api/knowledge/documents/{id}/publication-preview")
+    public ResponseEntity<KnowledgeService.PublicationReview> review(@PathVariable String id) {
+        return result(knowledge.review(user(), id));
+    }
+    @PostMapping("/api/knowledge/documents/{id}/publish-reviewed")
+    public ResponseEntity<KnowledgeService.Document> publishReviewed(@PathVariable String id, @RequestBody ReviewedPublishRequest request) {
+        return result(knowledge.publishReviewed(user(), id, request.reviewToken()));
+    }
     @PostMapping("/api/knowledge/documents")
     public ResponseEntity<KnowledgeService.Document> create(@RequestBody KnowledgeService.Draft request) {
         return result(knowledge.create(user(), request));

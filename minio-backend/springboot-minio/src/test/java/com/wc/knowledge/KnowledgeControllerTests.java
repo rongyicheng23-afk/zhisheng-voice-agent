@@ -55,6 +55,27 @@ class KnowledgeControllerTests {
         verifyNoInteractions(knowledge);
     }
 
+    @Test void comparisonAndReviewRoutesRequireLoginAndUseAuthenticatedOwner() throws Exception {
+        UserInfo user = new UserInfo(); user.setId(7); when(users.getUserById(7)).thenReturn(user);
+        var mvc = MockMvcBuilders.standaloneSetup(controller).addInterceptors(new LoginInterceptor(users)).build();
+        mvc.perform(post("/api/knowledge/compare").contentType("application/json").content("{\"beforeId\":\"a\",\"afterId\":\"b\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/knowledge/documents/b/publication-preview")).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/knowledge/documents/b/publish-reviewed").contentType("application/json").content("{\"reviewToken\":\"token\"}"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(knowledge);
+        String auth = "Bearer " + JwtUtil.genToken(Map.of("id", 7));
+        mvc.perform(post("/api/knowledge/compare").header("Authorization", auth).contentType("application/json")
+                .content("{\"beforeId\":\"a\",\"afterId\":\"b\",\"userId\":999}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(get("/api/knowledge/documents/b/publication-preview").header("Authorization", auth))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
+        mvc.perform(post("/api/knowledge/documents/b/publish-reviewed").header("Authorization", auth).contentType("application/json")
+                .content("{\"reviewToken\":\"token\",\"userId\":999}"))
+                .andExpect(status().isOk()).andExpect(header().string("Cache-Control", "no-store"));
+        verify(knowledge).compare(7, "a", "b"); verify(knowledge).review(7, "b"); verify(knowledge).publishReviewed(7, "b", "token");
+    }
+
     @Test void databaseFailuresAreSanitizedAndNotCached() throws Exception {
         ThreadLocalUtil.set(Map.of("id", 7));
         UserInfo user = new UserInfo(); user.setId(7); when(users.getUserById(7)).thenReturn(user);

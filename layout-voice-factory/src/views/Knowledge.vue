@@ -33,30 +33,82 @@
       <router-link to="/RealtimeVoice">前往实时语音，勾选“资料模式”可朗读原文</router-link>
     </section>
     <section>
+      <h2>版本对比</h2>
+      <p>选择同一资料的两个版本，核对正文、来源和有效期变化；对比不会修改任何资料。</p>
+      <fieldset :disabled="busy">
+        <label>对照版本 <select v-model="beforeId" @change="afterId = ''; comparison = null">
+          <option value="">请选择</option><option v-for="doc in documents" :key="doc.id" :value="doc.id">{{ doc.title }} · {{ doc.sourceVersion }}</option>
+        </select></label>
+        <label>目标版本 <select v-model="afterId" @change="comparison = null">
+          <option value="">请选择同一资料的另一版本</option><option v-for="doc in comparisonCandidates" :key="doc.id" :value="doc.id">{{ doc.title }} · {{ doc.sourceVersion }}</option>
+        </select></label>
+        <button :disabled="!beforeId || !afterId" @click="compareVersions">查看差异</button>
+      </fieldset>
+      <KnowledgeDiff v-if="comparison" :value="comparison" />
+    </section>
+    <section v-if="publicationReview" aria-labelledby="publication-title">
+      <h2 id="publication-title">发布前核对：{{ publicationReview.candidate.title }} · {{ publicationReview.candidate.sourceVersion }}</h2>
+      <p>服务器核对日期：{{ publicationReview.checkedOn }}（北京时间）。{{ publicationReview.message }}</p>
+      <p>此操作是你本人确认，不代表系统核验了资料真实性。</p>
+      <p>发布单位：{{ publicationReview.candidate.publisher }} · 有效期：{{ publicationReview.candidate.validFrom }} 至 {{ publicationReview.candidate.validUntil }}（含当天）</p>
+      <p>来源链接：{{ publicationReview.candidate.sourceUrl || '未填写，请自行核实原始发布来源' }}</p>
+      <ul v-if="publicationReview.replaced.length"><li v-for="doc in publicationReview.replaced" :key="doc.id">将下架：{{ doc.title }} · {{ doc.sourceVersion }}（修订 {{ doc.revision }}）</li></ul>
+      <KnowledgeDiff v-if="publicationReview.comparison" :value="publicationReview.comparison" />
+      <details><summary>核对待发布完整原文</summary><pre>{{ publicationReview.candidate.content }}</pre></details>
+      <button :disabled="busy || !publicationReview.eligible" @click="confirmPublication">我已核对，确认发布及替换</button>
+      <button :disabled="busy" @click="publicationReview = null">取消发布</button>
+    </section>
+    <section>
       <h2>资料与版本（{{ documents.length }} / 100）</h2>
       <button :disabled="busy" @click="refresh">刷新列表</button>
+      <label>筛选标题、发布单位或版本号 <input v-model="filterText" maxlength="160" /></label>
+      <label>状态 <select v-model="filterState"><option value="ALL">全部版本</option><option value="ACTIVE">有效且已发布</option><option value="DRAFT">草稿</option><option value="WITHDRAWN">已下架</option><option value="EXPIRED">已过期（任意发布状态）</option><option value="FUTURE">未生效（任意发布状态）</option></select></label>
+      <p>显示 {{ visibleDocuments.length }} 个版本。日期筛选按 {{ checkedDate }} 北京时间计算；跨天请刷新，发布资格由服务器再次核对。</p>
       <p v-if="!documents.length">尚无资料，或尚未登录/初始化资料库。</p>
-      <article v-for="doc in documents" :key="doc.id">
+      <p v-else-if="!visibleDocuments.length">没有符合筛选条件的资料。</p>
+      <article v-for="doc in visibleDocuments" :key="doc.id">
         <h3>{{ doc.title }} · {{ doc.sourceVersion }}</h3>
         <p>{{ doc.status === 'DRAFT' ? '草稿' : doc.status === 'PUBLISHED' ? '已发布（检索时仍核对有效期）' : '已下架' }} · 修订 {{ doc.revision }}</p>
         <p>{{ doc.publisher }} · {{ doc.validFrom }} 至 {{ doc.validUntil }}</p>
         <details><summary>查看原文</summary><pre>{{ doc.content }}</pre></details>
         <button :disabled="busy" @click="newVersion(doc)">基于此资料创建新版本</button>
-        <button v-if="doc.status !== 'PUBLISHED'" :disabled="busy" @click="changeStatus(doc, 'PUBLISHED')">已核对，发布</button>
+        <button v-if="doc.status !== 'PUBLISHED'" :disabled="busy" @click="previewPublication(doc)">预览发布与替换影响</button>
         <button v-else :disabled="busy" @click="changeStatus(doc, 'WITHDRAWN')">下架</button>
       </article>
     </section>
   </main>
 </template>
 <script lang="ts">
-import { defineComponent, reactive, ref, onMounted, onBeforeUnmount } from 'vue'
-import { knowledgeRequest, KnowledgeDocument, KnowledgeCitation } from '@/api/knowledge'
+import { defineComponent, reactive, ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { knowledgeRequest, KnowledgeDocument, KnowledgeCitation, KnowledgeComparison, PublicationReview } from '@/api/knowledge'
+import KnowledgeDiff from '@/components/KnowledgeDiff.vue'
 export default defineComponent({
+  components: { KnowledgeDiff },
   setup() {
     const empty = () => ({ title: '', sourceUrl: '', publisher: '', sourceVersion: '', validFrom: '', validUntil: '', content: '', seriesId: '' })
     const form = reactive(empty())
     const busy = ref(false), status = ref(''), question = ref(''), searchMessage = ref('')
     const documents = ref<KnowledgeDocument[]>([]), hits = ref<KnowledgeCitation[]>([])
+    const beforeId = ref(''), afterId = ref(''), comparison = ref<KnowledgeComparison | null>(null)
+    const publicationReview = ref<PublicationReview | null>(null)
+    const filterText = ref(''), filterState = ref('ALL')
+    const beijingDate = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
+    const checkedDate = ref(beijingDate())
+    const comparisonCandidates = computed(() => {
+      const before = documents.value.find(d => d.id === beforeId.value)
+      return before ? documents.value.filter(d => d.seriesId === before.seriesId && d.id !== before.id) : []
+    })
+    const visibleDocuments = computed(() => documents.value.filter(doc => {
+      const query = filterText.value.trim().toLocaleLowerCase()
+      if (query && ![doc.title, doc.publisher, doc.sourceVersion].some(s => s.toLocaleLowerCase().includes(query))) return false
+      switch (filterState.value) {
+        case 'ACTIVE': return doc.status === 'PUBLISHED' && doc.validFrom <= checkedDate.value && doc.validUntil >= checkedDate.value
+        case 'EXPIRED': return doc.validUntil < checkedDate.value
+        case 'FUTURE': return doc.validFrom > checkedDate.value
+        case 'DRAFT': case 'WITHDRAWN': return doc.status === filterState.value
+        default: return true
+      }
+    }))
     let alive = true, fileAttempt = 0
     let pendingSave: { fingerprint: string, requestId: string } | null = null
     const requestId = () => {
@@ -70,7 +122,10 @@ export default defineComponent({
     const refresh = async () => {
       if (busy.value) return
       busy.value = true
-      try { const data = await knowledgeRequest<KnowledgeDocument[]>('/documents'); if (alive) documents.value = data }
+      try {
+        const data = await knowledgeRequest<KnowledgeDocument[]>('/documents')
+        if (alive) { documents.value = data; checkedDate.value = beijingDate(); comparison.value = null; publicationReview.value = null }
+      }
       catch (e) { report(e) } finally { if (alive) busy.value = false }
     }
     const newDocument = () => { if (!busy.value) { ++fileAttempt; pendingSave = null; Object.assign(form, empty()) } }
@@ -107,10 +162,42 @@ export default defineComponent({
         await knowledgeRequest('/documents/' + encodeURIComponent(doc.id) + '/status', { status: next, revision: doc.revision })
         if (!alive) return
         hits.value = []; searchMessage.value = ''
+        publicationReview.value = null
         status.value = '状态已保存'
         try { documents.value = await knowledgeRequest<KnowledgeDocument[]>('/documents') }
         catch (_) { status.value = '状态已保存，但列表刷新失败，请刷新查看；不要重复提交' }
       } catch (e) { report(e) } finally { if (alive) busy.value = false }
+    }
+    const compareVersions = async () => {
+      if (busy.value || !comparisonCandidates.value.some(d => d.id === afterId.value)) return
+      busy.value = true; comparison.value = null
+      try {
+        const result = await knowledgeRequest<KnowledgeComparison>('/compare', { beforeId: beforeId.value, afterId: afterId.value })
+        if (alive) comparison.value = result
+      } catch (e) { report(e) } finally { if (alive) busy.value = false }
+    }
+    const previewPublication = async (doc: KnowledgeDocument) => {
+      if (busy.value) return
+      busy.value = true; publicationReview.value = null
+      try {
+        const result = await knowledgeRequest<PublicationReview>('/documents/' + encodeURIComponent(doc.id) + '/publication-preview')
+        if (alive) { publicationReview.value = result; status.value = '已生成发布预览，请核对上方差异和原文，再确认发布' }
+      } catch (e) { report(e) } finally { if (alive) busy.value = false }
+    }
+    const confirmPublication = async () => {
+      const review = publicationReview.value
+      if (busy.value || !review?.eligible) return
+      busy.value = true
+      try {
+        await knowledgeRequest('/documents/' + encodeURIComponent(review.candidate.id) + '/publish-reviewed', { reviewToken: review.reviewToken })
+        if (!alive) return
+        publicationReview.value = null; hits.value = []; searchMessage.value = ''; status.value = '发布成功，替换影响已确认'
+        try {
+          const data = await knowledgeRequest<KnowledgeDocument[]>('/documents')
+          if (alive) { documents.value = data; checkedDate.value = beijingDate() }
+        } catch (_) { if (alive) status.value = '发布已成功，但列表刷新失败；请刷新查看，不要重复提交' }
+      } catch (e) { if (alive) publicationReview.value = null; report(e) }
+      finally { if (alive) busy.value = false }
     }
     const search = async () => {
       if (busy.value || !question.value.trim()) return
@@ -134,7 +221,9 @@ export default defineComponent({
     }
     onMounted(refresh)
     onBeforeUnmount(() => { alive = false; ++fileAttempt })
-    return { form, busy, status, question, searchMessage, documents, hits, refresh, newDocument, newVersion, saveDraft, changeStatus, search, importText }
+    return { form, busy, status, question, searchMessage, documents, hits, refresh, newDocument, newVersion, saveDraft, changeStatus, search, importText,
+      beforeId, afterId, comparison, comparisonCandidates, compareVersions, publicationReview, previewPublication, confirmPublication,
+      filterText, filterState, checkedDate, visibleDocuments }
   }
 })
 </script>
@@ -142,7 +231,7 @@ export default defineComponent({
 .knowledge-page { max-width: 1050px; margin: 30px auto; padding: 0 20px; }
 section { border: 1px solid #ccd6e0; border-radius: 14px; padding: 22px; margin: 20px 0; }
 fieldset { border: 0; padding: 0; } label { display: block; margin: 12px 0; }
-input, textarea { display: block; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #aab9cc; border-radius: 6px; }
+input, textarea, select { display: block; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #aab9cc; border-radius: 6px; }
 button { padding: 8px 12px; margin: 6px; cursor: pointer; } article { border-top: 1px solid #ddd; padding: 12px 0; }
 pre, blockquote { white-space: pre-wrap; overflow-wrap: anywhere; } .status { color: #9d4219; }
 </style>

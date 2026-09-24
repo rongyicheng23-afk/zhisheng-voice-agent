@@ -33,7 +33,17 @@ class KnowledgeMySqlSmokeTests {
             assertEquals(1, service.list(owner).size());
             assertFalse(service.search(owner, "报名材料").citations().isEmpty());
             assertTrue(service.search(owner - 1, "报名材料").citations().isEmpty());
-            service.transition(owner, doc.id(), "WITHDRAWN", 2);
+            var next = service.create(owner, new KnowledgeService.Draft(draft.title(), draft.sourceUrl(), draft.publisher(), "fixture-v2",
+                    draft.validFrom(), draft.validUntil(), "报名材料更新测试原文。", doc.seriesId()));
+            var review = service.review(owner, next.id());
+            assertEquals(doc.id(), review.replaced().get(0).id());
+            assertEquals(1, review.comparison().added());
+            service.publishReviewed(owner, next.id(), review.reviewToken());
+            assertEquals("WITHDRAWN", service.review(owner, doc.id()).candidate().status());
+            assertTrue(service.search(owner, "报名材料").citations().stream().allMatch(c -> c.documentId().equals(next.id())));
+            assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                    () -> service.publishReviewed(owner, next.id(), review.reviewToken()));
+            service.transition(owner, next.id(), "WITHDRAWN", 2);
             assertTrue(service.search(owner, "报名材料").citations().isEmpty());
             return null;
         });

@@ -88,6 +88,78 @@ class KnowledgeServiceTests {
         assertEquals("v1", hits.get(0).sourceVersion());
         assertEquals(1, hits.get(0).paragraph());
     }
+    @Test void reviewIsReadOnlyAndConfirmedPublicationReplacesExactlyTheReviewedVersion() {
+        var old = publish(1, create(1, null, "v1"));
+        var next = create(1, old.seriesId(), "v2");
+        var review = service.review(1, next.id());
+        assertTrue(review.eligible());
+        assertEquals(old.id(), review.replaced().get(0).id());
+        assertEquals(next.id(), review.comparison().afterId());
+        assertEquals("DRAFT", service.list(1).stream().filter(d -> d.id().equals(next.id())).findFirst().orElseThrow().status());
+        var result = tx.execute(s -> service.publishReviewed(1, next.id(), review.reviewToken()));
+        assertEquals("PUBLISHED", result.status());
+        assertEquals("WITHDRAWN", service.list(1).stream().filter(d -> d.id().equals(old.id())).findFirst().orElseThrow().status());
+    }
+    @Test void reviewedPublishRejectsChangedPredecessorWithoutTouchingCandidate() {
+        var old = publish(1, create(1, null, "v1"));
+        var next = create(1, old.seriesId(), "v2");
+        var review = service.review(1, next.id());
+        tx.execute(s -> service.transition(1, old.id(), "WITHDRAWN", old.revision()));
+        var error = assertThrows(ResponseStatusException.class, () -> tx.execute(s -> service.publishReviewed(1, next.id(), review.reviewToken())));
+        assertEquals(409, error.getStatusCode().value());
+        assertEquals("DRAFT", service.review(1, next.id()).candidate().status());
+    }
+    @Test void firstPublicationPreviewAndCandidateRevisionAreChecked() {
+        var doc = create(1, null, "v1");
+        var initial = service.review(1, doc.id());
+        assertTrue(initial.replaced().isEmpty()); assertNull(initial.comparison()); assertTrue(initial.eligible());
+        assertThrows(ResponseStatusException.class, () -> tx.execute(s -> service.publishReviewed(1, doc.id(), null)));
+        tx.execute(s -> service.transition(1, doc.id(), "WITHDRAWN", doc.revision()));
+        var error = assertThrows(ResponseStatusException.class,
+                () -> tx.execute(s -> service.publishReviewed(1, doc.id(), initial.reviewToken())));
+        assertEquals(409, error.getStatusCode().value());
+        var current = service.review(1, doc.id());
+        tx.execute(s -> service.publishReviewed(1, doc.id(), current.reviewToken()));
+        assertFalse(service.review(1, doc.id()).eligible());
+    }
+    @Test void reviewedPublishRollbackRestoresBothVersions() {
+        var old = publish(1, create(1, null, "v1"));
+        var next = create(1, old.seriesId(), "v2");
+        var review = service.review(1, next.id());
+        assertThrows(IllegalStateException.class, () -> tx.execute(s -> {
+            service.publishReviewed(1, next.id(), review.reviewToken()); throw new IllegalStateException("rollback");
+        }));
+        assertEquals("PUBLISHED", service.review(1, old.id()).candidate().status());
+        assertEquals(review.reviewToken(), service.review(1, next.id()).reviewToken());
+    }
+    @Test void concurrentReviewedPublicationsCannotBothApplyTheSamePredecessorSnapshot() throws Exception {
+        var old = publish(1, create(1, null, "v1"));
+        var a = create(1, old.seriesId(), "v2"); var b = create(1, old.seriesId(), "v3");
+        var ra = service.review(1, a.id()); var rb = service.review(1, b.id());
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            java.util.function.Function<KnowledgeService.PublicationReview, Boolean> apply = r -> {
+                try { tx.execute(s -> service.publishReviewed(1, r.candidate().id(), r.reviewToken())); return true; }
+                catch (ResponseStatusException e) { assertEquals(409, e.getStatusCode().value()); return false; }
+            };
+            var fa = pool.submit(() -> apply.apply(ra)); var fb = pool.submit(() -> apply.apply(rb));
+            assertNotEquals(fa.get(5, TimeUnit.SECONDS), fb.get(5, TimeUnit.SECONDS));
+            assertEquals(1, service.list(1).stream().filter(d -> d.status().equals("PUBLISHED")).count());
+        } finally { pool.shutdownNow(); }
+    }
+    @Test void reviewOwnershipDatesAndComparisonSeriesAreEnforced() {
+        var doc = create(1, null, "v1"); var other = create(1, null, "other");
+        assertThrows(ResponseStatusException.class, () -> service.review(2, doc.id()));
+        assertThrows(ResponseStatusException.class, () -> service.compare(2, doc.id(), doc.id()));
+        assertThrows(ResponseStatusException.class, () -> service.compare(1, doc.id(), other.id()));
+        assertThrows(ResponseStatusException.class, () -> tx.execute(s -> service.publishReviewed(2, doc.id(), service.review(1, doc.id()).reviewToken())));
+        var nextDay = new KnowledgeService(db, Clock.fixed(Instant.parse("2026-09-19T00:00:00Z"), ZoneOffset.UTC));
+        assertThrows(ResponseStatusException.class, () -> tx.execute(s -> nextDay.publishReviewed(1, doc.id(), service.review(1, doc.id()).reviewToken())));
+        var expired = new KnowledgeService(db, Clock.fixed(Instant.parse("2026-09-20T00:00:00Z"), ZoneOffset.UTC));
+        var review = expired.review(1, doc.id()); assertFalse(review.eligible());
+        assertThrows(ResponseStatusException.class, () -> tx.execute(s -> expired.publishReviewed(1, doc.id(), review.reviewToken())));
+        assertEquals("DRAFT", service.review(1, doc.id()).candidate().status());
+    }
     @Test void ownershipAppliesToListSearchVersionCreationAndStatus() {
         var doc = publish(1, create(1, null, "v1"));
         assertTrue(service.list(2).isEmpty());

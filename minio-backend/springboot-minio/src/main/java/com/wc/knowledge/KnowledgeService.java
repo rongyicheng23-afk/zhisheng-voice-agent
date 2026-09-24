@@ -26,6 +26,9 @@ public class KnowledgeService {
                            String sourceVersion, LocalDate validFrom, LocalDate validUntil,
                            int paragraph, String quote) {}
     public record SearchResult(String mode, String message, List<Citation> citations) {}
+    public record PublicationReview(Document candidate, List<Document> replaced, LocalDate checkedOn,
+                                    boolean eligible, String message, String reviewToken,
+                                    KnowledgeComparison.Result comparison) {}
     private final JdbcTemplate db;
     private final Clock clock;
     @org.springframework.beans.factory.annotation.Autowired
@@ -45,6 +48,47 @@ public class KnowledgeService {
         owner(owner);
         db.update("INSERT IGNORE INTO knowledge_space(owner_id) VALUES (?)", owner);
         db.queryForObject("SELECT owner_id FROM knowledge_space WHERE owner_id=? FOR UPDATE", Integer.class, owner);
+    }
+
+    public KnowledgeComparison.Result compare(int owner, String beforeId, String afterId) {
+        List<Document> documents = list(owner);
+        Document before = find(documents, beforeId), after = find(documents, afterId);
+        if (!before.seriesId.equals(after.seriesId)) throw bad("只能比较同一资料的不同版本");
+        return KnowledgeComparison.compare(before, after);
+    }
+
+    public PublicationReview review(int owner, String id) {
+        List<Document> documents = list(owner);
+        Document candidate = find(documents, id);
+        List<Document> replaced = documents.stream().filter(d -> d.seriesId.equals(candidate.seriesId)
+                && !d.id.equals(id) && d.status.equals("PUBLISHED")).sorted(Comparator.comparing(Document::id)).toList();
+        LocalDate today = LocalDate.now(clock);
+        boolean eligible = !candidate.status.equals("PUBLISHED") && !today.isBefore(candidate.validFrom) && !today.isAfter(candidate.validUntil);
+        String message = candidate.status.equals("PUBLISHED") ? "此版本已经发布" : !eligible ? "此版本未生效或已过期，不能发布"
+                : replaced.isEmpty() ? "发布后此版本参与有效资料检索" : "确认发布将下架下列已发布版本，旧正文仍保留";
+        String fingerprint = owner + ":" + today + ":" + candidate.id + ":" + candidate.revision + ":" + candidate.status;
+        for (Document d : replaced) fingerprint += ":" + d.id + ":" + d.revision;
+        String token;
+        try {
+            token = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(fingerprint.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+        return new PublicationReview(candidate, replaced, today, eligible, message, token,
+                replaced.size() == 1 ? KnowledgeComparison.compare(replaced.get(0), candidate) : null);
+    }
+
+    @Transactional
+    public Document publishReviewed(int owner, String id, String reviewToken) {
+        lock(owner);
+        PublicationReview current = review(owner, id);
+        if (reviewToken == null || !current.reviewToken.equals(reviewToken))
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "核对期间资料状态或日期已变化，请重新预览");
+        if (!current.eligible) throw bad(current.message);
+        return transition(owner, id, "PUBLISHED", current.candidate.revision);
+    }
+
+    private static Document find(List<Document> documents, String id) {
+        return documents.stream().filter(d -> d.id.equals(id)).findFirst().orElseThrow(KnowledgeService::missing);
     }
 
     @Transactional
