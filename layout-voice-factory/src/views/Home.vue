@@ -19,7 +19,7 @@
           <el-carousel class="stage-carousel" height="360px" :interval="4000" :autoplay="true" :pause-on-hover="false" arrow="never" trigger="click">
             <el-carousel-item>
               <div class="signal-core">
-                <span class="stage-tag">Voice AI · 总览</span>
+                <span class="stage-tag">Voice AI · 功能示意</span>
                 <div class="orbit orbit--outer"></div>
                 <div class="orbit orbit--middle"></div>
                 <div class="orbit orbit--inner"></div>
@@ -79,7 +79,7 @@
                   </div>
                   <div class="sv-ring">
                     <strong>98%</strong>
-                    <small>声纹匹配</small>
+                    <small>示例匹配度</small>
                   </div>
                   <div class="sv-wave sv-wave--b">
                     <span v-for="n in 9" :key="`svb-${n}`"></span>
@@ -101,6 +101,10 @@
         </article>
       </section>
 
+      <p class="service-refresh" role="status">
+        {{ healthMessage }}<span v-if="healthCheckedAt"> · 最近检测 {{ healthCheckedAt }}</span>
+        <button :disabled="healthBusy" @click="loadHealth">{{ healthBusy ? '检测中…' : '重新检测服务' }}</button>
+      </p>
       <section class="metric-grid">
         <article v-for="metric in metrics" :key="metric.label" class="metric-card">
           <span>{{ metric.label }}</span>
@@ -175,17 +179,15 @@
 </template>
 
 <script lang="ts">
-import { computed, defineComponent, onMounted, ref } from 'vue'
+import { computed, defineComponent, onMounted, onBeforeUnmount, ref } from 'vue'
 import { Connection, Cpu, Document, Headset, Microphone, Right, Tickets } from '@element-plus/icons-vue'
 import FlowBackgroundPanel from '@/components/FlowBackgroundPanel.vue'
-import http from '@/api'
+import { initialServices, fetchServiceHealth, ServiceStatus } from '@/libs/service-health'
 import { getMyAudioHistory, AudioHistoryItem } from '@/api/history'
 import { getMyTtsHistory, TtsHistoryItem } from '@/api/tts'
 import { getMyVoiceprintHistory, VoiceprintHistoryItem } from '@/api/voiceprint'
 import { getMeetingStats, getMyMeetingHistory, MeetingHistoryItem, MeetingStats } from '@/api/meeting'
 import store from '@/store'
-
-type ServiceStatus = 'checking' | 'online' | 'offline'
 
 interface ActivityItem {
   id: string
@@ -211,12 +213,10 @@ export default defineComponent({
   components: { FlowBackgroundPanel, Connection, Cpu, Document, Headset, Microphone, Right, Tickets },
   setup () {
     const isLoggedIn = computed(() => store.getters.isLoggedIn)
-    const serviceStatuses = ref([
-      { key: 'asr', label: 'FunASR', status: 'checking' as ServiceStatus },
-      { key: 'tts', label: 'TTS', status: 'checking' as ServiceStatus },
-      { key: 'voiceprint', label: 'Voiceprint', status: 'checking' as ServiceStatus },
-      { key: 'meeting', label: 'Meeting API', status: 'checking' as ServiceStatus }
-    ])
+    const serviceStatuses = ref(initialServices())
+    const healthBusy = ref(false), healthMessage = ref('正在检测服务连接'), healthCheckedAt = ref('')
+    let alive = true
+    onBeforeUnmount(() => { alive = false })
     const audioHistory = ref<AudioHistoryItem[]>([])
     const ttsHistory = ref<TtsHistoryItem[]>([])
     const voiceprintHistory = ref<VoiceprintHistoryItem[]>([])
@@ -259,27 +259,20 @@ export default defineComponent({
       return items.sort((left, right) => (right.time || '').localeCompare(left.time || '')).slice(0, 6)
     })
 
-    const serviceText = (status: ServiceStatus) => status === 'online' ? '在线' : status === 'offline' ? '离线' : '检测中'
-    const updateService = (key: string, status: ServiceStatus) => {
-      const target = serviceStatuses.value.find(service => service.key === key)
-      if (target) target.status = status
-    }
+    const serviceText = (status: ServiceStatus) => ({ online: '可连接', offline: '不可用', checking: '检测中', unknown: '未确认' })[status]
 
     const loadHealth = async () => {
-      const checks = [
-        { key: 'asr', url: '/api/funasr/health' },
-        { key: 'tts', url: '/api/tts/health' },
-        { key: 'voiceprint', url: '/api/voiceprint/health' }
-      ]
-      await Promise.all(checks.map(async check => {
-        try {
-          const res = await http.get(check.url) as unknown as { code?: number; status?: string }
-          updateService(check.key, res?.code === 200 || res?.status === 'success' ? 'online' : 'offline')
-        } catch (error) {
-          updateService(check.key, 'offline')
-        }
-      }))
-      updateService('meeting', 'online')
+      if (healthBusy.value) return
+      healthBusy.value = true; serviceStatuses.value = initialServices(); healthMessage.value = '正在检测服务连接'; healthCheckedAt.value = ''
+      try {
+        const result = await fetchServiceHealth()
+        if (!alive) return
+        serviceStatuses.value = result.services; healthCheckedAt.value = result.checkedAt
+        healthMessage.value = result.services.every(item => item.status === 'online')
+          ? '服务连接正常' : '部分服务不可用或尚未确认，请检查对应服务后重新检测'
+      } catch (_) {
+        if (alive) { serviceStatuses.value = initialServices('unknown'); healthMessage.value = '无法获取检测结果，请检查后端连接后重试' }
+      } finally { if (alive) healthBusy.value = false }
     }
 
     const loadUserData = async () => {
@@ -303,7 +296,7 @@ export default defineComponent({
       loadUserData()
     })
 
-    return { serviceStatuses, serviceText, metrics, features, waveBars, demoSteps, recentActivities }
+    return { serviceStatuses, serviceText, metrics, features, waveBars, demoSteps, recentActivities, healthBusy, healthMessage, healthCheckedAt, loadHealth }
   }
 })
 </script>
@@ -779,9 +772,12 @@ export default defineComponent({
 
 .service-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
+
+.service-refresh { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; }
+.service-refresh button { cursor: pointer; padding: 6px 12px; border: 1px solid #aab9cc; border-radius: 6px; }
 
 .service-pill,
 .metric-card,

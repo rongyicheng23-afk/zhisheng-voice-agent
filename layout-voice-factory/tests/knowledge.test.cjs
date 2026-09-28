@@ -21,13 +21,47 @@ function setup(handler = async () => ({})) {
   const requests = [], exports = {}
   const script = fs.readFileSync(path.join(__dirname, '../src/views/Knowledge.vue'), 'utf8').match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
   const code = ts.transpileModule(script, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText
-  vm.runInNewContext(code, { exports, TextDecoder, crypto: require('node:crypto').webcrypto, require: name => name === 'vue'
+  vm.runInNewContext(code, { exports, Error, TextDecoder, crypto: require('node:crypto').webcrypto, require: name => name === 'vue'
     ? { defineComponent: x => x, reactive: x => x, ref: value => ({ value }), computed: fn => ({ get value() { return fn() } }), onMounted() {}, onBeforeUnmount() {} }
-    : { knowledgeRequest: async (url, body) => { requests.push({ url, body }); return handler(url, body) } } })
+    : { knowledgeRequest: async (url, body) => { requests.push({ url, body }); return handler(url, body) },
+      knowledgeImport: async file => { requests.push({ url: '/import-preview', body: file }); return handler('/import-preview', file) } } })
   const page = exports.default.setup()
   Object.assign(page.form, { title: '通知', publisher: '发布方', sourceVersion: 'v1', validFrom: '2026-09-01', validUntil: '2026-10-01', content: '报名材料需学生证。' })
   return { page, requests }
 }
+test('file extraction previews without overwriting a draft; applying preserves its metadata', async () => {
+  const { page, requests } = setup(async () => ({ format: 'pdf', suggestedTitle: '新标题', content: '导入正文', pages: 2, warnings: [] }))
+  await page.importText({ target: { files: [{ name: 'notice.pdf', size: 100 }] } })
+  assert.equal(requests[0].url, '/import-preview')
+  assert.equal(page.form.content, '报名材料需学生证。')
+  assert.equal(page.importPreview.value.content, '导入正文')
+  page.importPreview.value.content = '核对后的正文'; page.applyImport()
+  assert.equal(page.form.content, '核对后的正文'); assert.equal(page.form.title, '通知')
+  assert.equal(page.form.publisher, '发布方'); assert.equal(page.importPreview.value, null)
+  assert.equal(requests.length, 1)
+})
+test('extraction failure keeps the draft and discards a stale preview', async () => {
+  const { page } = setup(async () => { throw new Error('扫描件需要 OCR') })
+  page.importPreview.value = { content: '旧内容' }
+  await page.importText({ target: { files: [{ name: 'scan.pdf', size: 100 }] } })
+  assert.equal(page.form.content, '报名材料需学生证。'); assert.equal(page.importPreview.value, null)
+  assert.equal(page.busy.value, false); assert.match(page.status.value, /OCR/)
+})
+test('switching documents clears import preview and an empty preview cannot be applied', () => {
+  const { page } = setup()
+  page.importPreview.value = { content: ' ' }; page.applyImport()
+  assert.equal(page.form.content, '报名材料需学生证。')
+  page.newDocument(); assert.equal(page.importPreview.value, null)
+})
+test('imports prevent overlapping saves and reset the file input for retry', async () => {
+  let resolve
+  const { page, requests } = setup(() => new Promise(r => { resolve = r }))
+  const target = { files: [{ name: 'file.docx', size: 100 }], value: 'file.docx' }
+  const pending = page.importText({ target })
+  await page.saveDraft(); assert.equal(requests.length, 1); assert.equal(target.value, '')
+  resolve({ format: 'docx', suggestedTitle: 'x', content: '导入内容', pages: 0, warnings: [] })
+  await pending; assert.equal(page.busy.value, false)
+})
 test('compare permits only two versions of the same series and clears stale result on failure', async () => {
   const { page, requests } = setup(async () => { throw new Error('offline') })
   page.documents.value = [{ id: 'a', seriesId: 's' }, { id: 'b', seriesId: 's' }, { id: 'foreign', seriesId: 'other' }]

@@ -43,6 +43,8 @@ HTTP 与 WebSocket 共用 `REALTIME_ALLOWED_ORIGINS` 精确来源白名单（如
 
 ## 验证与未完成项
 
+资料库现在支持 TXT、文字型 PDF 和 Word DOCX 的提取预览：核对或修正后应用到正文，再保存草稿及发布。扫描件须先做 OCR，详见 `docs/knowledge-evidence-mode.md`。首页服务状态来自数据库、存储和模型服务的实际连接探测，并提供重新检测入口。
+
 见 `docs/consolidated-improvements.md`、`docs/knowledge-evidence-mode.md` 和 `services/realtime/README.md`。已具备授权资料检索、增量语音合成接口、分段降级和按键打断；真实 XTTS 模型、浏览器声卡、自动插话及标注集评估仍需联合验收。组件测试不能代替完整演示验收。
 
 运行时密钥、隧道令牌、证书、模型权重、数据库数据和构建产物不会提交到仓库。部署前请根据各目录中的示例配置准备本地环境。

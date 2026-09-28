@@ -14,9 +14,21 @@
         <label>生效日期 <input v-model="form.validFrom" type="date" /></label>
         <label>截止日期（含当天，北京时间） <input v-model="form.validUntil" type="date" /></label>
         <label>正文（最多20000字；按换行定位原文段落） <textarea v-model="form.content" rows="9" maxlength="20000" /></label>
-        <label>也可导入 UTF-8 文本（不超过100 KB，不支持PDF/Word） <input type="file" accept=".txt,text/plain" @change="importText" /></label>
+        <label>导入文件并预览：UTF-8 TXT（100 KB内）、PDF / Word DOCX（5 MB内）
+          <input type="file" accept=".txt,.pdf,.docx" @change="importText" />
+        </label>
+        <p>PDF 最多100页，正文最多20000字。扫描件须先做 OCR；选择文件后先核对提取结果，再应用到正文。</p>
         <button @click="saveDraft">保存为草稿</button> <button @click="newDocument">切换为新资料</button>
       </fieldset>
+    </section>
+    <section v-if="importPreview" aria-labelledby="import-title">
+      <h2 id="import-title">导入预览：{{ importPreview.suggestedTitle }}</h2>
+      <p>{{ importPreview.format.toUpperCase() }}<span v-if="importPreview.pages"> · {{ importPreview.pages }} 页</span> · {{ importPreview.content.length }} 字，尚未保存</p>
+      <ul><li v-for="(warning, index) in importPreview.warnings" :key="index">{{ warning }}</li></ul>
+      <label>核对或修正提取正文 <textarea v-model="importPreview.content" rows="12" maxlength="20000" :disabled="busy" /></label>
+      <p v-if="form.content.trim()">应用后会替换上方正在编辑的正文；发布单位、版本和日期保持当前填写内容。</p>
+      <button :disabled="busy || !importPreview.content.trim() || importPreview.content.length > 20000" @click="applyImport">已核对，应用到正文</button>
+      <button :disabled="busy" @click="cancelImport">取消导入</button>
     </section>
     <section>
       <h2>检索有效资料</h2>
@@ -80,7 +92,7 @@
 </template>
 <script lang="ts">
 import { defineComponent, reactive, ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { knowledgeRequest, KnowledgeDocument, KnowledgeCitation, KnowledgeComparison, PublicationReview } from '@/api/knowledge'
+import { knowledgeRequest, knowledgeImport, KnowledgeImportPreview, KnowledgeDocument, KnowledgeCitation, KnowledgeComparison, PublicationReview } from '@/api/knowledge'
 import KnowledgeDiff from '@/components/KnowledgeDiff.vue'
 export default defineComponent({
   components: { KnowledgeDiff },
@@ -91,6 +103,7 @@ export default defineComponent({
     const documents = ref<KnowledgeDocument[]>([]), hits = ref<KnowledgeCitation[]>([])
     const beforeId = ref(''), afterId = ref(''), comparison = ref<KnowledgeComparison | null>(null)
     const publicationReview = ref<PublicationReview | null>(null)
+    const importPreview = ref<KnowledgeImportPreview | null>(null)
     const filterText = ref(''), filterState = ref('ALL')
     const beijingDate = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' })
     const checkedDate = ref(beijingDate())
@@ -128,10 +141,11 @@ export default defineComponent({
       }
       catch (e) { report(e) } finally { if (alive) busy.value = false }
     }
-    const newDocument = () => { if (!busy.value) { ++fileAttempt; pendingSave = null; Object.assign(form, empty()) } }
+    const newDocument = () => { if (!busy.value) { ++fileAttempt; pendingSave = null; importPreview.value = null; Object.assign(form, empty()) } }
     const newVersion = (doc: KnowledgeDocument) => {
       if (busy.value) return
       pendingSave = null
+      importPreview.value = null
       ++fileAttempt
       Object.assign(form, { title: doc.title, sourceUrl: doc.sourceUrl, publisher: doc.publisher,
         validFrom: doc.validFrom, validUntil: doc.validUntil, content: doc.content, sourceVersion: '', seriesId: doc.seriesId })
@@ -151,6 +165,7 @@ export default defineComponent({
         ++fileAttempt
         documents.value = [doc, ...documents.value.filter(item => item.id !== doc.id)]
         pendingSave = null
+        importPreview.value = null
         Object.assign(form, empty())
         status.value = doc.status === 'DRAFT' ? '草稿已保存，核对后点击“发布”才参与检索' : '资料已保存；重试返回已有版本，保留其当前发布状态'
       } catch (e) { report(e) } finally { if (alive) busy.value = false }
@@ -212,18 +227,40 @@ export default defineComponent({
       const attempt = ++fileAttempt
       const file = (event.target as HTMLInputElement).files?.[0]
       if (!file) return
+      ;(event.target as HTMLInputElement).value = ''
+      importPreview.value = null
+      busy.value = true
       try {
-        if (!file.name.toLowerCase().endsWith('.txt') || file.size > 100 * 1024) throw new Error('仅支持100 KB以内的UTF-8 TXT文件')
-        const content = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer())
-        if (!content.trim() || content.length > 20000) throw new Error('文本为空或超过20000字')
-        if (alive && attempt === fileAttempt && !busy.value) form.content = content
-      } catch (e) { report(e) }
+        const suffix = file.name.toLowerCase().split('.').pop()
+        if (!suffix || !['txt', 'pdf', 'docx'].includes(suffix)) throw new Error('仅支持 UTF-8 TXT、PDF 和 DOCX；旧版 DOC 请先转换')
+        if (!file.size || file.size > (suffix === 'txt' ? 100 * 1024 : 5 * 1024 * 1024)) throw new Error('文件为空或过大：TXT 最多100 KB，PDF / DOCX 最多5 MB')
+        status.value = '正在提取文件文字，请稍候…'
+        const preview = await knowledgeImport(file)
+        if (alive && attempt === fileAttempt) {
+          importPreview.value = preview
+          status.value = '提取完成，请核对下方导入预览；现有正文尚未改变'
+        }
+      } catch (e) { if (attempt === fileAttempt) report(e) }
+      finally { if (alive && attempt === fileAttempt) busy.value = false }
+    }
+    const applyImport = () => {
+      const preview = importPreview.value
+      if (busy.value || !preview?.content.trim() || preview.content.length > 20000) return
+      form.content = preview.content.trim()
+      if (!form.title.trim()) form.title = preview.suggestedTitle
+      pendingSave = null; importPreview.value = null; ++fileAttempt
+      status.value = '已应用到正文，请补齐发布单位、版本和日期，再保存为草稿'
+    }
+    const cancelImport = () => {
+      if (busy.value) return
+      importPreview.value = null
+      status.value = '已取消导入，正在编辑的正文已保留'
     }
     onMounted(refresh)
     onBeforeUnmount(() => { alive = false; ++fileAttempt })
     return { form, busy, status, question, searchMessage, documents, hits, refresh, newDocument, newVersion, saveDraft, changeStatus, search, importText,
       beforeId, afterId, comparison, comparisonCandidates, compareVersions, publicationReview, previewPublication, confirmPublication,
-      filterText, filterState, checkedDate, visibleDocuments }
+      filterText, filterState, checkedDate, visibleDocuments, importPreview, applyImport, cancelImport }
   }
 })
 </script>
