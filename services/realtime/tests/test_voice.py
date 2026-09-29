@@ -206,6 +206,50 @@ class VoiceSocketTests(unittest.TestCase):
             with TestClient(self.app) as client, self.connect(client) as ws:
                 self.assertEqual("session.unavailable", ws.receive_json()["event"])
 
+    def test_grounded_socket_uses_authenticated_user_and_emits_validated_claims(self):
+        from services.realtime.grounded import GroundedKnowledgeReply
+        from services.realtime.tests.test_knowledge import citation
+        from services.realtime.tests.test_grounded import answer
+        import json
+        requests, model_calls = [], []
+        def search(request):
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, json={'citations': [citation()]})
+        original = GroundedKnowledgeReply.__init__
+        def init(adapter, settings, user_id, model):
+            original(adapter, settings, user_id, model, httpx.MockTransport(search))
+        class Model:
+            def __init__(self, settings): pass
+            async def stream_reply(self, prompt, cancel, **kwargs):
+                model_calls.append(kwargs)
+                yield json.dumps(answer())
+        async def consume(*args): return 7
+        app = FastAPI()
+        settings = SimpleNamespace(allowed_origins={'http://localhost:8081'}, deepseek_api_key='fixture',
+                                   spring_boot_url='http://business', internal_key='fixture')
+        install_voice_route(app, settings, consume, Model)
+        with patch.object(GroundedKnowledgeReply, '__init__', init), TestClient(app) as client, self.connect(client) as ws:
+            self.assertEqual('session.ready', ws.receive_json()['event'])
+            ws.send_json({'event': 'turn.start', 'prompt': '报名材料', 'answerMode': 'grounded', 'userId': 999})
+            received = False
+            while True:
+                event = ws.receive_json()
+                if event['event'] == 'turn.sources':
+                    received = True
+                    self.assertEqual('grounded', event['answerMode'])
+                    self.assertEqual(answer()['claims'], event['claims'])
+                if event['event'] == 'audio.chunk':
+                    self.assertTrue(received)
+                    ws.send_json({'event': 'audio.ack', 'turnId': event['turnId'], 'sequence': event['sequence']})
+                if event['event'] == 'audio.completed':
+                    ws.send_json({'event': 'playback.completed', 'turnId': event['turnId']})
+                if event['event'] in ('turn.failed', 'turn.completed'):
+                    self.assertEqual('turn.completed', event['event'])
+                    break
+        self.assertEqual(7, requests[0]['userId'])
+        self.assertEqual(7, model_calls[0]['user_id'])
+        self.assertTrue(model_calls[0]['json_mode'])
+
     def test_knowledge_socket_uses_authenticated_user_without_deepseek(self):
         from services.realtime.knowledge import KnowledgeReply
         from services.realtime.tests.test_knowledge import citation

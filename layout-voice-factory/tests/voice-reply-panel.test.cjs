@@ -7,7 +7,7 @@ const ts = require('typescript')
 const vue = require('vue')
 
 function setup(t) {
-  const calls = [], stops = []
+  const calls = [], stops = [], modes = []
   const source = fs.readFileSync(path.join(__dirname, '../src/components/VoiceReplyPanel.vue'), 'utf8')
     .match(/<script lang="ts">([\s\S]*?)<\/script>/)[1]
   const code = ts.transpileModule(source, { compilerOptions: {
@@ -19,12 +19,12 @@ function setup(t) {
   vm.runInNewContext(code, { exports, require: name => name === 'vue'
     ? { ...vue, onBeforeUnmount() {} }
     : { VoiceReply: class {
-      start(text) { calls.push(text); return Promise.resolve() }
+      start(text, mode) { calls.push(text); modes.push(mode); return Promise.resolve() }
       stop() { stops.push(true) }
     } } })
   const props = vue.reactive({ prompt: '本次提问', completion: 0, recording: false, recognizing: false })
   const panel = scope.run(() => exports.default.setup(props))
-  return { props, panel, calls, stops }
+  return { props, panel, calls, stops, modes }
 }
 
 test('automatic sending is opt-in and requires a new completion', async t => {
@@ -63,4 +63,20 @@ test('empty recognition cannot send an old question', async t => {
   f.props.completion++
   await vue.nextTick()
   assert.equal(f.calls.length, 0)
+})
+
+test('grounded mode requires explicit opt-in and applies to manual and automatic questions', async t => {
+  const f = setup(t)
+  f.panel.question.value = '问题'
+  f.panel.ask()
+  f.panel.knowledgeMode.value = true
+  f.panel.ask()
+  f.panel.groundedMode.value = true
+  f.panel.ask()
+  f.panel.autoReply.value = true
+  f.props.completion++
+  await vue.nextTick()
+  f.panel.knowledgeMode.value = false
+  f.panel.ask()
+  assert.deepEqual(f.modes, ['general', 'knowledge', 'grounded', 'grounded', 'general'])
 })

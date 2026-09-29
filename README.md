@@ -43,6 +43,8 @@ HTTP 与 WebSocket 共用 `REALTIME_ALLOWED_ORIGINS` 精确来源白名单（如
 
 ## 验证与未完成项
 
+2026-09-29：语音资料模式新增可选“依据资料归纳”。明确勾选后才把问题及检索摘录发送给已配置的 DeepSeek；每条归纳展示来源与逐字原文，引用检查通过后才朗读。默认仍只读原文，不调用 DeepSeek。无资料拒答，引用失败不退回通用回答；引用正确不等于语义结论已核实。使用与验收见 [资料模式说明](docs/knowledge-evidence-mode.md)；离线人工标注评测见 [资料问答评测](docs/knowledge-evaluation.md)。
+
 资料库现在支持 TXT、文字型 PDF 和 Word DOCX 的提取预览：核对或修正后应用到正文，再保存草稿及发布。扫描件须先做 OCR，详见 `docs/knowledge-evidence-mode.md`。首页服务状态来自数据库、存储和模型服务的实际连接探测，并提供重新检测入口。
 
 见 `docs/consolidated-improvements.md`、`docs/knowledge-evidence-mode.md` 和 `services/realtime/README.md`。已具备授权资料检索、增量语音合成接口、分段降级和按键打断；真实 XTTS 模型、浏览器声卡、自动插话及标注集评估仍需联合验收。组件测试不能代替完整演示验收。

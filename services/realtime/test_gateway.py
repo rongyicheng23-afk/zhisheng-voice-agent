@@ -99,3 +99,20 @@ class DeepSeekLlmAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(request_body["stream"])
         self.assertNotEqual("7", request_body["user_id"])
         self.assertEqual(64, len(request_body["user_id"]))
+        self.assertNotIn("response_format", request_body)
+        self.assertEqual(0.6, request_body["temperature"])
+
+    async def test_grounded_json_options_do_not_change_general_request(self):
+        requests = []
+        def handler(request):
+            requests.append(json.loads(request.content))
+            return httpx.Response(200, content=b'data: [DONE]\n\n')
+        adapter = DeepSeekLlmAdapter(self._settings(), httpx.MockTransport(handler))
+        _ = [chunk async for chunk in adapter.stream_reply(
+            'question', asyncio.Event(), system_prompt='Return JSON.', json_mode=True)]
+        _ = [chunk async for chunk in adapter.stream_reply('question', asyncio.Event())]
+        self.assertEqual({'type': 'json_object'}, requests[0]['response_format'])
+        self.assertEqual('Return JSON.', requests[0]['messages'][0]['content'])
+        self.assertEqual(0, requests[0]['temperature'])
+        self.assertNotIn('response_format', requests[1])
+        self.assertEqual(0.6, requests[1]['temperature'])

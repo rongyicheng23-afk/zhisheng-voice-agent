@@ -19,9 +19,11 @@ from fastapi import WebSocket, WebSocketDisconnect
 try:
     from .turns import AudioChunk, RealtimeSession
     from .knowledge import KnowledgeReply
+    from .grounded import GroundedKnowledgeReply
 except ImportError:
     from turns import AudioChunk, RealtimeSession
     from knowledge import KnowledgeReply
+    from grounded import GroundedKnowledgeReply
 
 
 class AudioDelivery:
@@ -220,13 +222,14 @@ def install_voice_route(app, settings, consume_ticket, llm_factory):
                     if not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= 4000:
                         raise ValueError("invalid prompt")
                     mode = message.get('answerMode', 'general')
-                    if mode not in ('general', 'knowledge'):
+                    if mode not in ('general', 'knowledge', 'grounded'):
                         raise ValueError('invalid answer mode')
-                    if mode == 'general' and not settings.deepseek_api_key:
+                    if mode != 'knowledge' and not settings.deepseek_api_key:
                         await websocket.send_json({'event': 'session.unavailable', 'message': 'DeepSeek 未配置'})
                         await websocket.close(code=1013)
                         return
                     adapter = (KnowledgeReply(settings, user_id) if mode == 'knowledge'
+                               else GroundedKnowledgeReply(settings, user_id, llm_factory(settings)) if mode == 'grounded'
                                else VoiceLlm(llm_factory(settings), user_id))
                     await session.start(prompt, llm=adapter)
                 elif session.active and message.get("turnId") == session.active["id"]:

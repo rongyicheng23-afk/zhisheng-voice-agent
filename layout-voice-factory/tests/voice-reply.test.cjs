@@ -5,6 +5,32 @@ const path = require('node:path')
 const vm = require('node:vm')
 const ts = require('typescript')
 
+test('grounded claims are checked and cleared when reusing a socket', async () => {
+  const f = fixture()
+  try {
+    await f.reply.start('资料', 'grounded'); f.ready()
+    assert.equal(f.sockets[0].sent[0].answerMode, 'grounded')
+    f.receive({ event: 'turn.sources', sessionId: 'session', turnId: 'turn', sequence: 2,
+      answerMode: 'grounded', citations: [{ id: 'source', quote: '需要学生证。' }],
+      claims: [{ text: '提交学生证', evidence: [{ sourceId: 'source', quote: '学生证' }] }] })
+    assert.equal(f.updates.at(-1).claims.length, 1)
+    await f.reply.start('第二轮', 'knowledge')
+    assert.equal(f.updates.at(-1).claims.length, 0)
+  } finally { f.reply.stop(false) }
+})
+
+test('grounded fabricated quote closes connection before speech', async () => {
+  const f = fixture()
+  try {
+    await f.reply.start('资料', 'grounded'); f.ready()
+    f.receive({ event: 'turn.sources', sessionId: 'session', turnId: 'turn', sequence: 2,
+      answerMode: 'grounded', citations: [{ id: 'source', quote: '需要学生证。' }],
+      claims: [{ text: '提交身份证', evidence: [{ sourceId: 'source', quote: '身份证' }] }] })
+    assert.equal(f.sockets[0].readyState, 3)
+    assert.ok(!f.updates.some(update => update.claims?.length))
+  } finally { f.reply.stop(false) }
+})
+
 test('citation highlight waits for playback and clears on interrupt', async () => {
   const f = fixture()
   try {

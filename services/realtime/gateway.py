@@ -45,7 +45,8 @@ class LlmProviderError(Exception):
 
 class LlmAdapter(Protocol):
     async def stream_reply(
-        self, prompt: str, cancel: asyncio.Event, *, user_id: int | None = None
+        self, prompt: str, cancel: asyncio.Event, *, user_id: int | None = None,
+        system_prompt: str | None = None, json_mode: bool = False
     ) -> AsyncIterator[str]: ...
 
 
@@ -65,7 +66,8 @@ class DeepSeekLlmAdapter:
         self._transport = transport
 
     async def stream_reply(
-        self, prompt: str, cancel: asyncio.Event, *, user_id: int | None = None
+        self, prompt: str, cancel: asyncio.Event, *, user_id: int | None = None,
+        system_prompt: str | None = None, json_mode: bool = False
     ) -> AsyncIterator[str]:
         if not self._settings.deepseek_api_key:
             raise LlmConfigurationError("DEEPSEEK_API_KEY is not configured")
@@ -76,15 +78,17 @@ class DeepSeekLlmAdapter:
             "stream_options": {"include_usage": True},
             "thinking": {"type": "disabled"},
             "max_tokens": self._settings.deepseek_max_tokens,
-            "temperature": 0.6,
+            "temperature": 0 if json_mode else 0.6,
             "messages": [
                 {
                     "role": "system",
-                    "content": "你是智能语音交互平台的助手。回答自然、简洁，适合直接朗读。",
+                    "content": system_prompt or "你是智能语音交互平台的助手。回答自然、简洁，适合直接朗读。",
                 },
                 {"role": "user", "content": prompt},
             ],
         }
+        if json_mode:
+            request["response_format"] = {"type": "json_object"}
         # Send an application-scoped pseudonymous value instead of exposing
         # the database user ID to the external model provider.
         if user_id is not None:

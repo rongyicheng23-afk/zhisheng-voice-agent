@@ -118,7 +118,9 @@ class RealtimeSession:
             prepare = getattr(llm, 'prepare', None)
             if prepare:
                 citations = await prepare(prompt)
-                await self._emit(turn, 'turn.sources', citations=citations, answerMode='extractive')
+                await self._emit(turn, 'turn.sources', citations=citations,
+                                 answerMode=getattr(llm, 'answer_mode', 'extractive'),
+                                 claims=getattr(llm, 'claims', []))
             iterator = llm.stream(prompt).__aiter__()
             next_token = None
             first = True

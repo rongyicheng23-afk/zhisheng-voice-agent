@@ -1,6 +1,9 @@
 import { getRuntimeHttpBaseUrl } from '@/api'
 
+export type AnswerMode = 'general' | 'knowledge' | 'grounded'
+
 export interface ReplyUpdate {
+  claims?: Array<{ text: string, evidence: Array<{ sourceId: string, quote: string }> }>
   activeCitationIds?: string[]
   citations?: Array<{ id: string, title: string, sourceVersion: string, publisher: string, sourceUrl: string, validFrom: string, validUntil: string, paragraph: number, quote: string }>
   status?: string
@@ -23,7 +26,7 @@ export class VoiceReply {
   private abort: AbortController | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
   private turnId = ''
-  private reuse: ((prompt: string, mode: 'general' | 'knowledge') => void) | null = null
+  private reuse: ((prompt: string, mode: AnswerMode) => void) | null = null
   private socketToken = ''
   constructor(private update: (value: ReplyUpdate) => void) {}
 
@@ -50,7 +53,7 @@ export class VoiceReply {
     if (notify) this.update({ busy: false, status: '已停止回答' })
   }
 
-  async start(prompt: string, answerMode: 'general' | 'knowledge' = 'general') {
+  async start(prompt: string, answerMode: AnswerMode = 'general') {
     const token = localStorage.getItem('token') || sessionStorage.getItem('token')
     const existing = token && token === this.socketToken && this.reuse && this.socket?.readyState === WebSocket.OPEN ? this.reuse : null
     if (!existing) this.stop(false)
@@ -58,9 +61,9 @@ export class VoiceReply {
     const current = () => attempt === this.generation
     let began = performance.now()
     let text = prompt.trim()
-    if (!text || text.length > (answerMode === 'knowledge' ? 1000 : 4000)) {
+    if (!text || text.length > (answerMode !== 'general' ? 1000 : 4000)) {
       if (existing) this.stop(false)
-      this.update({ busy: false, status: answerMode === 'knowledge' ? '资料模式请输入 1–1000 字的提问' : '请输入 1–4000 字的提问' })
+      this.update({ busy: false, status: answerMode !== 'general' ? '资料模式请输入 1–1000 字的提问' : '请输入 1–4000 字的提问' })
       return
     }
     if (!token) {
@@ -69,7 +72,7 @@ export class VoiceReply {
       return
     }
     if (existing) { existing(text, answerMode); return }
-    this.update({ busy: true, text: '', citations: [], status: '正在连接语音回答', firstTokenMs: undefined,
+    this.update({ busy: true, text: '', citations: [], claims: [], status: '正在连接语音回答', firstTokenMs: undefined,
       firstTtsAudioMs: undefined, firstAudioMs: undefined, bufferedMs: 0, underflowCount: 0 })
     const fail = (status: string) => {
       if (!current()) return
@@ -118,7 +121,7 @@ export class VoiceReply {
       const send = (event: object) => {
         if (current() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(event))
       }
-      const beginTurn = (nextText: string, nextMode: 'general' | 'knowledge', reused = true) => {
+      const beginTurn = (nextText: string, nextMode: AnswerMode, reused = true) => {
         if (!current()) return
         if (this.turnId) {
           send({ event: 'turn.interrupt', turnId: this.turnId })
@@ -131,7 +134,7 @@ export class VoiceReply {
         sourceIds.clear(); segments.clear(); lastSegment = 0; playedSegment = 0; sourcesReceived = false
         if (this.timer) clearTimeout(this.timer)
         this.timer = setTimeout(() => fail('本轮回答超时，请重试'), 10 * 60 * 1000)
-        this.update({ busy: true, text: '', citations: [], activeCitationIds: [], status: '正在生成回答',
+        this.update({ busy: true, text: '', citations: [], claims: [], activeCitationIds: [], status: answerMode === 'grounded' ? '正在检索资料、归纳并检查引用' : '正在生成回答',
           firstTokenMs: undefined, firstTtsAudioMs: undefined, firstAudioMs: undefined,
           synthesisMode, bufferedMs: 0, underflowCount: 0 })
         send({ event: 'turn.start', prompt: text, answerMode })
@@ -168,7 +171,8 @@ export class VoiceReply {
         try {
           const event = JSON.parse(data)
           if (event.event === 'session.unavailable') {
-            fail('语音回答未配置：请配置服务器 DeepSeek 密钥和 TTS 参考音频')
+            fail(answerMode === 'knowledge' ? '资料朗读不可用：请检查 TTS 参考音频和服务配置'
+              : '模型语音回答不可用：请检查服务器 DeepSeek 密钥、TTS 参考音频和服务配置')
             return
           }
           if (event.event === 'session.ready' && !sessionId) {
@@ -197,12 +201,28 @@ export class VoiceReply {
               if (!source || typeof source.id !== 'string' || !source.id || sourceIds.has(source.id)) throw new Error('sources')
               sourceIds.add(source.id)
             }
-            this.update({ citations: event.citations, status: '正在朗读资料原文（不是模型结论）' })
+            const claims = event.claims || []
+            if (!Array.isArray(claims) || claims.length > 6 ||
+                (answerMode === 'grounded' && event.answerMode !== 'grounded') ||
+                (answerMode !== 'grounded' && claims.length)) throw new Error('claims')
+            for (const claim of claims) {
+              if (!claim || typeof claim.text !== 'string' || !claim.text.trim() || claim.text.trim().length > 400 ||
+                  !Array.isArray(claim.evidence) || !claim.evidence.length || claim.evidence.length > 3) throw new Error('claims')
+              const seen = new Set<string>()
+              for (const ref of claim.evidence) {
+                const source = event.citations.find((item: { id: string }) => item.id === ref?.sourceId)
+                if (!source || seen.has(ref.sourceId) || typeof ref.quote !== 'string' || !ref.quote.trim() ||
+                    typeof source.quote !== 'string' || !source.quote.includes(ref.quote)) throw new Error('claims')
+                seen.add(ref.sourceId)
+              }
+            }
+            this.update({ citations: event.citations, claims, status: answerMode === 'grounded'
+              ? '正在朗读资料归纳，请核对引用原文' : '正在朗读资料原文（不是模型结论）' })
           }
           else if (event.event === 'segment.ready') {
             const ids = event.citationIds || []
             if (event.segmentSequence !== lastSegment + 1 || segments.size >= 256 ||
-                (answerMode === 'knowledge' && !sourcesReceived) || !Array.isArray(ids) || ids.length > 3 ||
+                (answerMode !== 'general' && !sourcesReceived) || !Array.isArray(ids) || ids.length > 3 ||
                 new Set(ids).size !== ids.length || ids.some((id: string) => !sourceIds.has(id))) throw new Error('segment')
             segments.set(++lastSegment, ids)
           }
@@ -227,8 +247,8 @@ export class VoiceReply {
             this.timer = null
             this.turnId = ''
             this.update({ busy: false, activeCitationIds: [], status: '回答播放完成' })
-          } else if (event.event === 'turn.failed') fail(answerMode === 'knowledge'
-            ? '资料检索或朗读失败，本轮不会改用无依据回答' : '回答处理失败，请检查模型服务或稍后重试')
+          } else if (event.event === 'turn.failed') fail(answerMode !== 'general'
+            ? '资料检索、引用检查或朗读失败，本轮不会改用无依据回答' : '回答处理失败，请检查模型服务或稍后重试')
           else if (event.event === 'turn.cancelled') fail('回答已取消')
         } catch (_) { fail('回答连接或音频格式异常，请重试') }
       }
