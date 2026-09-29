@@ -157,52 +157,15 @@ public class KnowledgeService {
 
     public SearchResult search(int owner, String question) {
         String query = required(question, 1000);
-        Set<String> terms = terms(query);
         LocalDate today = LocalDate.now(clock);
-        record Scored(Citation citation, double score) {}
-        List<Scored> candidates = new ArrayList<>();
-        for (Document d : list(owner)) {
-            if (!d.status.equals("PUBLISHED") || today.isBefore(d.validFrom) || today.isAfter(d.validUntil)) continue;
-            String[] paragraphs = d.content.split("\\r?\\n+");
-            for (int i = 0; i < paragraphs.length; i++) {
-                String paragraph = paragraphs[i].trim();
-                if (paragraph.isEmpty()) continue;
-                // Bounded verbatim slices; every citation identifies its paragraph and slice.
-                for (int offset = 0; offset < paragraph.length();) {
-                    int end = Math.min(offset + 500, paragraph.length());
-                    if (end < paragraph.length() && Character.isHighSurrogate(paragraph.charAt(end - 1))
-                            && Character.isLowSurrogate(paragraph.charAt(end))) end--;
-                    String quote = paragraph.substring(offset, end);
-                    int sliceStart = offset;
-                    offset = end;
-                    Set<String> words = terms(quote);
-                    long matches = terms.stream().filter(words::contains).count();
-                    if (matches == 0) continue;
-                    double relevance = (double)matches / Math.max(1, terms.size());
-                    if (relevance < .25) continue;
-                    candidates.add(new Scored(new Citation(d.id + ":" + (i + 1) + ":" + sliceStart,
-                            d.id, d.title, d.sourceUrl, d.publisher, d.sourceVersion, d.validFrom, d.validUntil, i + 1, quote), relevance));
-                }
-            }
-        }
-        candidates.sort(Comparator.comparingDouble(Scored::score).reversed().thenComparing(s -> s.citation.id));
-        List<Citation> hits = candidates.stream().limit(3).map(Scored::citation).toList();
+        // Filter before scoring: other users, drafts and expired versions cannot affect ranks.
+        List<Document> eligible = list(owner).stream().filter(d -> d.status.equals("PUBLISHED")
+                && !today.isBefore(d.validFrom) && !today.isAfter(d.validUntil)).toList();
+        List<Citation> hits = KnowledgeRetrieval.search(eligible, query);
         return new SearchResult("extractive", hits.isEmpty() ? "没有检索到当前有效的相关资料，无法据此确认答案。"
                 : "以下为相关原文，不是已核验结论；若来源互相冲突，请核对发布方。", hits);
     }
 
-    static Set<String> terms(String text) {
-        Set<String> result = new HashSet<>();
-        var matcher = java.util.regex.Pattern.compile("[\\p{IsHan}]+|[a-z0-9]+", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text.toLowerCase(Locale.ROOT));
-        while (matcher.find()) {
-            String token = matcher.group();
-            if (Character.UnicodeScript.of(token.codePointAt(0)) == Character.UnicodeScript.HAN) {
-                for (int i = 0; i + 1 < token.length(); i++) result.add(token.substring(i, i + 2));
-            } else result.add(token);
-        }
-        result.removeAll(Set.of("请问", "什么", "怎么", "如何", "是否", "可以", "我们", "你们", "the", "is", "a"));
-        return result;
-    }
     private static String required(String value, int max) {
         if (value == null || value.isBlank() || value.trim().length() > max) throw bad("必填内容为空或超过长度限制");
         return value.trim();

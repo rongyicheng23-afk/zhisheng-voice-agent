@@ -226,6 +226,36 @@ class KnowledgeServiceTests {
         assertTrue(service.search(1, "如何").message().contains("无法"));
     }
 
+    @Test void inaccessibleAndInactiveCorporaCannotChangeScoresOrSourceOrder() {
+        publish(1, create(1, null, "v1"));
+        var before = service.search(1, "报名 学籍").citations();
+        assertFalse(before.isEmpty());
+        for (int i = 0; i < 5; i++) {
+            var d = new KnowledgeService.Draft("学籍", "", "单位", "v" + i,
+                    today.minusDays(1), today.plusDays(1), "学籍证明", null);
+            var hidden = tx.execute(s -> service.create(2, d));
+            publish(2, hidden);
+            tx.execute(s -> service.create(1, d)); // Own unpublished drafts also must not affect frequency.
+        }
+        var expired = new KnowledgeService.Draft("旧通知", "", "单位", "old",
+                today.minusDays(3), today.minusDays(1), "学籍证明", null);
+        var old = tx.execute(s -> service.create(1, expired));
+        // Represents a document that was published while valid, then naturally expired.
+        db.update("UPDATE knowledge_document SET status='PUBLISHED' WHERE id=?", old.id());
+        assertEquals(before, service.search(1, "报名 学籍").citations());
+    }
+
+    @Test void serviceFindsBoundaryEvidenceAndWithdrawalTakesEffectImmediately() {
+        String text = "。".repeat(499) + "学生证必须有效。" + "。".repeat(500);
+        var d = new KnowledgeService.Draft("报名", "", "单位", "boundary", today, today, text, null);
+        var doc = publish(1, tx.execute(s -> service.create(1, d)));
+        var hits = service.search(1, "学生证").citations();
+        assertTrue(hits.stream().anyMatch(hit -> hit.quote().contains("学生证必须有效。")));
+        assertTrue(service.search(2, "学生证").citations().isEmpty());
+        tx.execute(s -> service.transition(1, doc.id(), "WITHDRAWN", doc.revision()));
+        assertTrue(service.search(1, "学生证").citations().isEmpty());
+    }
+
     @Test void unicodeChunkBoundariesNeverSplitASurrogatePair() {
         var d = draft(null, "unicode");
         String text = "报名材料" + "中".repeat(495) + "😀报名材料需要学生证。";

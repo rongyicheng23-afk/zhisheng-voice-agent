@@ -49,6 +49,14 @@ class KnowledgeMySqlSmokeTests {
                     () -> service.publishReviewed(owner, next.id(), review.reviewToken()));
             service.transition(owner, next.id(), "WITHDRAWN", 2);
             assertTrue(service.search(owner, "报名材料").citations().isEmpty());
+            String boundaryText = "。".repeat(499) + "学生证及 ＡＢＣ１２３ 证明😀" + "。".repeat(510);
+            var boundary = service.create(owner, new KnowledgeService.Draft("切片边界", "", "测试", "boundary",
+                    today, today, boundaryText, null));
+            service.transition(owner, boundary.id(), "PUBLISHED", boundary.revision());
+            var hits = service.search(owner, "学生证 abc123").citations();
+            assertTrue(hits.stream().anyMatch(hit -> hit.quote().contains("学生证及 ＡＢＣ１２３ 证明😀")));
+            assertTrue(hits.stream().allMatch(hit -> boundaryText.contains(hit.quote())));
+            assertTrue(service.search(owner - 1, "学生证 abc123").citations().isEmpty());
             return null;
         });
         assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM knowledge_space WHERE owner_id=?", Integer.class, owner));
